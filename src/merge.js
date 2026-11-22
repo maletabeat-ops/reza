@@ -1,13 +1,17 @@
 // Merge the dashboard's copy of a business document into the server copy.
 // The dashboard owns settings and the status of items/conversations; the server owns
 // incoming messages and items created by clients (Telegram, public page).
+const validTz = (tz) => { try { return typeof tz === "string" && !!new Intl.DateTimeFormat("en", { timeZone: tz }); } catch { return false; } };
 const SETTINGS = ["biz", "channels", "mode", "paused", "tone", "guard", "notes", "ob"];
 
 export function mergeDoc(server, client, deletedItems = []) {
   const out = structuredClone(server);
   for (const k of SETTINGS) if (client[k] !== undefined) out[k] = client[k];
   // keep server-only fields of the business that the client must not change
-  out.biz.tz = server.biz.tz; out.biz.mode = server.biz.mode; out.biz.cur = server.biz.cur;
+  // the owner may switch currency and time zone, but only to valid values; the mode follows the sphere
+  out.biz.mode = server.biz.mode;
+  out.biz.cur = ["₽", "€"].includes(client.biz?.cur) ? client.biz.cur : server.biz.cur;
+  out.biz.tz = validTz(client.biz?.tz) ? client.biz.tz : server.biz.tz;
 
   const gone = new Set(deletedItems);
   const byId = new Map(out.items.filter((i) => !gone.has(i.id)).map((i) => [i.id, i]));

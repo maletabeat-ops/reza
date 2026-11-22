@@ -67,7 +67,7 @@ test("dashboard saves settings and keeps server-only fields", async () => {
   const put = await call("/api/state", { method: "PUT", body: { doc: d, deleted: [] } });
   assert.equal(put.status, 200);
   assert.equal(put.json.doc.biz.name, "Studio Renamed");
-  assert.equal(put.json.doc.biz.cur, "₽", "currency is fixed by the server");
+  assert.equal(put.json.doc.biz.cur, "₽", "invalid currency is ignored");
 });
 
 let slot;
@@ -118,16 +118,31 @@ test("deleting an item from the dashboard removes it on the server", async () =>
   assert.ok(!put.json.doc.items.some((i) => i.id === gone));
 });
 
+test("currency can be switched to a valid value only", async () => {
+  const st = await call("/api/state");
+  const d = st.json.doc; d.biz.cur = "€";
+  assert.equal((await call("/api/state", { method: "PUT", body: { doc: d } })).json.doc.biz.cur, "€");
+  d.biz.cur = "$";
+  assert.equal((await call("/api/state", { method: "PUT", body: { doc: d } })).json.doc.biz.cur, "€");
+});
+
 test("reminders endpoint is protected", async () => {
   assert.equal((await call("/api/cron/reminders")).status, 403);
   const ok = await call("/api/cron/reminders?key=k");
   assert.equal(ok.status, 200); assert.equal(ok.json.ok, true);
 });
 
+test("account deletion needs the password and removes the business", async () => {
+  assert.equal((await call("/api/account", { method: "DELETE", body: { password: "wrong" } })).status, 401);
+  assert.equal((await call("/api/account", { method: "DELETE", body: { password: "secret1" } })).status, 200);
+  const list = await call("/api/public/masters");
+  assert.ok(!list.json.masters.some((m) => m.slug === slug));
+});
+
 test("the web app is served", async () => {
   const r = await fetch(BASE + "/");
   assert.equal(r.status, 200);
   assert.match(await r.text(), /<title>Reza<\/title>/);
-  const red = await fetch(BASE + `/m/${slug}`, { redirect: "manual" });
+  const red = await fetch(BASE + `/m/anything`, { redirect: "manual" });
   assert.equal(red.status, 302);
 });

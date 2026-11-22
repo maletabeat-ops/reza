@@ -126,6 +126,16 @@ app.put("/api/profile", auth, async (c) => {
   return c.json({ ok: true });
 });
 
+// Delete the account and its business (asked twice in the interface)
+app.delete("/api/account", auth, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const u = (await q(`select * from users where id = $1`, [c.get("user").id]))[0];
+  if (!u || !checkPassword(String(b.password || ""), u.pass)) return bad(c, "wrong_credentials", 401);
+  await q(`delete from users where id = $1`, [u.id]); // businesses and Telegram links go with it (on delete cascade)
+  deleteCookie(c, COOKIE, { path: "/" });
+  return c.json({ ok: true });
+});
+
 // Owner replies to a client (Telegram) from the dashboard
 app.post("/api/convos/:id/reply", auth, async (c) => {
   const b = await c.req.json().catch(() => ({}));
