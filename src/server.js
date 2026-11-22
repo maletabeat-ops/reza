@@ -12,6 +12,7 @@ import { buildSystem, applyDecision, freeSlots, slotFree, localNow, addDaysIso, 
 import { decide, importPrices, aiConfigured } from "./ai.js";
 import { handleUpdate, setupTelegram, sendText, notifyOwner, getBotUsername, tgConfigured, WEBHOOK_SECRET } from "./telegram.js";
 import { tx, fmtDay } from "./i18n.js";
+import { igConfigured, igVerifyToken, authorizeUrl, connectAccount, disconnectAccount, igSend, validSignature, handleWebhook as handleIgWebhook, refreshTokens, igIdForBusiness, migrateInstagram } from "./instagram.js";
 
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
 const PROD = process.env.NODE_ENV === "production";
@@ -42,7 +43,7 @@ function meJson(user, row) {
     business: {
       slug: row.slug, sphere: row.sphere, locale: row.locale, published: row.published,
       tgLinked: !!row.tg_owner_chat, tgCode: row.tg_code, botUsername: getBotUsername(),
-      aiReady: aiConfigured(), telegramReady: tgConfigured(), publicUrl: PUBLIC_URL,
+      aiReady: aiConfigured(), telegramReady: tgConfigured(), igReady: igConfigured(), publicUrl: PUBLIC_URL,
     },
     doc: row.doc,
   };
@@ -142,11 +143,11 @@ app.post("/api/convos/:id/reply", auth, async (c) => {
   const text = String(b.text || "").trim().slice(0, 2000);
   if (!text) return bad(c, "empty");
   const row = c.get("biz"), id = c.req.param("id");
-  let chatId = null, bizConn = null;
+  let chatId = null, bizConn = null, igsid = null, ch = "TG";
   const { doc, ver } = await updateDoc(row.id, (d) => {
     const conv = d.convos.find((x) => x.id === id);
     if (!conv) throw Object.assign(new Error("nf"), { status: 404 });
-    chatId = conv.chatId; bizConn = conv.bizConn || null;
+    chatId = conv.chatId; bizConn = conv.bizConn || null; igsid = conv.igsid || null; ch = conv.ch || "TG";
     const fromDraft = !!b.fromDraft && conv.draft;
     if (fromDraft) {
       const decision = { ...conv.draft, reply: text };
@@ -163,7 +164,8 @@ app.post("/api/convos/:id/reply", auth, async (c) => {
     d.activity.push({ kind: "owner", name: conv.name, ts: Date.now() });
   }).catch((e) => ({ error: e }));
   if (!doc) return bad(c, "not_found", 404);
-  if (chatId) await sendText(chatId, text, bizConn);
+  if (ch === "IG" && igsid) { const igId = await igIdForBusiness(row.id); if (igId) await igSend(igId, igsid, text); }
+  else if (chatId) await sendText(chatId, text, bizConn);
   return c.json({ doc, ver });
 });
 
@@ -263,6 +265,31 @@ app.post("/api/telegram", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- Instagram ----------
+const IG_REDIRECT = () => `${PUBLIC_URL}/api/instagram/callback`;
+app.get("/api/instagram/connect", auth, (c) => {
+  if (!igConfigured() || !PUBLIC_URL) return c.redirect("/?ig=unavailable#integrations");
+  return c.redirect(authorizeUrl(IG_REDIRECT(), makeSession(c.get("biz").id, 0.02))); // signed state, valid ~30 min
+});
+app.get("/api/instagram/callback", async (c) => {
+  const bizId = readSession(c.req.query("state"));
+  if (!bizId || c.req.query("error")) return c.redirect("/?ig=denied#integrations");
+  try { await connectAccount(bizId, c.req.query("code"), IG_REDIRECT()); return c.redirect("/?ig=ok#integrations"); }
+  catch (err) { console.error("[ig] connect failed:", err.message); return c.redirect("/?ig=error#integrations"); }
+});
+app.post("/api/instagram/disconnect", auth, async (c) => { await disconnectAccount(c.get("biz").id); return c.json({ ok: true }); });
+app.get("/api/instagram/webhook", (c) => {
+  const ok = c.req.query("hub.mode") === "subscribe" && igVerifyToken() && c.req.query("hub.verify_token") === igVerifyToken();
+  return ok ? c.text(c.req.query("hub.challenge") || "") : c.text("forbidden", 403);
+});
+app.post("/api/instagram/webhook", async (c) => {
+  const raw = await c.req.text();
+  if (!validSignature(raw, c.req.header("x-hub-signature-256"))) return c.text("forbidden", 403);
+  let payload = null; try { payload = JSON.parse(raw); } catch {}
+  if (payload) handleIgWebhook(payload).catch((e) => console.error("[ig] webhook", e));
+  return c.text("EVENT_RECEIVED");
+});
+
 // ---------- reminders (call every hour from a scheduler) ----------
 app.all("/api/cron/reminders", async (c) => {
   const key = process.env.CRON_SECRET;
@@ -275,14 +302,20 @@ app.all("/api/cron/reminders", async (c) => {
       const now = localNow(d.biz.tz || "Europe/Moscow"), tomorrow = addDaysIso(now.date, 1);
       if (now.min < 10 * 60) return; // send reminders from 10:00 local time
       for (const it of d.items) {
-        if (it.kind === "booking" && it.date === tomorrow && it.chatId && !it.reminded && it.status !== "cancelled") {
-          it.reminded = true;
-          todo.push([it.chatId, tx(r.locale).remind(it.client, it.service, d.biz.name, it.time, d.biz.address), it.bizConn || null]);
-        }
+        if (it.kind !== "booking" || it.date !== tomorrow || it.reminded || it.status === "cancelled") continue;
+        const text = tx(r.locale).remind(it.client, it.service, d.biz.name, it.time, d.biz.address);
+        const conv = it.convo ? d.convos.find((c) => c.id === it.convo) : null;
+        if (it.chatId) { it.reminded = true; todo.push(["TG", it.chatId, text, it.bizConn || null]); }
+        else if (conv && conv.ch === "IG" && conv.igsid && Date.now() - (conv.lastClientTs || 0) < 23 * 3600e3) { it.reminded = true; todo.push(["IG", conv.igsid, text, r.id]); }
       }
     });
-    for (const [chat, text, conn] of todo) { await sendText(chat, text, conn); sent++; }
+    for (const [kind, to, text, extra] of todo) {
+      if (kind === "TG") await sendText(to, text, extra);
+      else { const igId = await igIdForBusiness(extra); if (igId) await igSend(igId, to, text); }
+      sent++;
+    }
   }
+  if (igConfigured()) await refreshTokens().catch((e) => console.error("[ig] refresh", e));
   return c.json({ ok: true, sent });
 });
 
@@ -298,6 +331,7 @@ app.onError((err, c) => { console.error("[http]", err); return c.json({ error: "
 export { app };
 if (process.env.REZA_NO_LISTEN !== "1") {
   await initDb();
+  await migrateInstagram();
   const port = Number(process.env.PORT || 3000);
   serve({ fetch: app.fetch, port }, () => console.log(`Reza is running on http://localhost:${port}`));
   setupTelegram(PUBLIC_URL).catch((e) => console.error("[tg] setup failed", e));

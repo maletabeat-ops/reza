@@ -124,13 +124,15 @@ async function handleBizMessage(m) {
 }
 
 export async function handleClientMessage(businessId, chatId, who, text, opts = {}) {
-  const convoId = "tg" + chatId;
+  const ch = opts.ch || "TG", convoId = opts.convoId || "tg" + chatId;
+  const send = opts.send || ((t) => sendText(chatId, t, opts.bizConn || null));
   // 1) store the message
   const { doc, row } = await updateDoc(businessId, (doc) => {
     let c = doc.convos.find((x) => x.id === convoId);
-    if (!c) { c = { id: convoId, name: who, ch: "TG", status: "ai", human: false, read: true, ts: Date.now(), chatId, msgs: [] }; doc.convos.push(c); }
+    if (!c) { c = { id: convoId, name: who, ch, status: "ai", human: false, read: true, ts: Date.now(), chatId, msgs: [] }; doc.convos.push(c); }
     c.msgs.push({ from: "client", text, ts: Date.now() });
-    c.bizConn = opts.bizConn || null;
+    if (ch === "TG") c.bizConn = opts.bizConn || null;
+    if (opts.igsid) { c.igsid = opts.igsid; c.lastClientTs = Date.now(); }
     c.ts = Date.now();
     if (c.msgs.length > 200) c.msgs = c.msgs.slice(-200);
   });
@@ -149,7 +151,7 @@ export async function handleClientMessage(businessId, chatId, who, text, opts = 
 
   // 3) ask the AI
   const existing = doc.items.find((i) => i.convo === convoId && i.status !== "cancelled") || null;
-  const system = buildSystem(doc, { locale, channel: "Telegram", existing });
+  const system = buildSystem(doc, { locale, channel: ch === "IG" ? "Instagram Direct" : "Telegram", existing });
   const decision = await decide(system, toMessages(convo.msgs));
 
   if (doc.mode === "suggest" && !decision.failed && decision.action !== "ignore") {
@@ -169,11 +171,11 @@ export async function handleClientMessage(businessId, chatId, who, text, opts = 
       d.alerts.push({ id: uid(), type: "handoff", name: c.name, ts: Date.now(), convo: c.id });
       out = { reply: T.wait_owner, notify: [T.n_wait(c.name, text.slice(0, 120))] };
     } else {
-      out = applyDecision(d, c, decision, { locale, source: "TG", chatId, bizConn: opts.bizConn || null });
+      out = applyDecision(d, c, decision, { locale, source: ch, chatId, bizConn: opts.bizConn || null });
     }
     if (out.reply) c.msgs.push({ from: "bot", text: out.reply, ts: Date.now(), src: decision.sources || [] });
     if (decision.note) c.note = decision.note;
   });
-  if (out.reply) await sendText(chatId, out.reply, opts.bizConn || null);
+  if (out.reply) await send(out.reply);
   await notifyOwner(row, out.notify);
 }

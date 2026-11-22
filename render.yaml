@@ -23,3 +23,9 @@ services:
         sync: false
       - key: PUBLIC_URL
         sync: false
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
+      - key: INSTAGRAM_VERIFY_TOKEN
+        sync: false

@@ -3,6 +3,34 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import crypto from "node:crypto";
+
+// A stand-in for the Instagram / Graph API so the Instagram flow runs offline.
+const IG_PORT = 3997, IG_SECRET = "igsecret", igSent = [];
+const igMock = http.createServer((req, res) => {
+  let body = ""; req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    const u = new URL(req.url, "http://x"), out = (j) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(j)); };
+    if (u.pathname === "/oauth/access_token") return out(new URLSearchParams(body).get("code") === "good"
+      ? { data: [{ access_token: "short", user_id: "1784", permissions: "instagram_business_basic,instagram_business_manage_messages" }] }
+      : { error_message: "bad code" });
+    if (u.pathname === "/access_token") return out({ access_token: "long", token_type: "bearer", expires_in: 5184000 });
+    if (u.pathname === "/v27.0/me") return out({ data: [{ user_id: "1784", username: "studio_test" }] });
+    if (u.pathname === "/v27.0/1784/subscribed_apps") return out({ success: true });
+    if (u.pathname === "/v27.0/1784/messages") {
+      if (req.headers.authorization !== "Bearer long") return out({ error: { message: "bad token" } });
+      const j = JSON.parse(body); igSent.push(j); return out({ recipient_id: j.recipient.id, message_id: "m_out_" + igSent.length });
+    }
+    if (u.pathname === "/v27.0/4242") return out({ name: "Lena", username: "lena_ig" });
+    res.statusCode = 404; out({});
+  });
+});
+const igHook = (messaging) => {
+  const raw = JSON.stringify({ object: "instagram", entry: [{ id: "1784", time: Date.now(), messaging }] });
+  const sig = "sha256=" + crypto.createHmac("sha256", IG_SECRET).update(raw).digest("hex");
+  return fetch(BASE + "/api/instagram/webhook", { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": sig }, body: raw });
+};
 
 const PORT = 3999, BASE = `http://localhost:${PORT}`, DB = "/tmp/reza-test-db";
 let proc, cookie = "", slug = "", tgCode = "";
@@ -28,13 +56,15 @@ before(async () => {
   if (process.env.TEST_DATABASE_URL) { // start from empty tables on a real Postgres
     const { default: postgres } = await import("postgres");
     const sql = postgres(process.env.TEST_DATABASE_URL, { onnotice: () => {} });
-    await sql.unsafe("drop table if exists tg_chats, businesses, users cascade"); await sql.end();
+    await sql.unsafe("drop table if exists ig_accounts, tg_business, tg_chats, businesses, users cascade"); await sql.end();
   }
-  proc = spawn("node", ["src/server.js"], { env: { ...process.env, PORT: String(PORT), PGLITE_DIR: DB, REZA_FAKE_AI: "1", CRON_SECRET: "k", DATABASE_URL: process.env.TEST_DATABASE_URL || "", PGSSL: "disable", TELEGRAM_BOT_TOKEN: "" }, stdio: "inherit" });
+  await new Promise((r) => igMock.listen(IG_PORT, r));
+  proc = spawn("node", ["src/server.js"], { env: { ...process.env, PORT: String(PORT), PGLITE_DIR: DB, REZA_FAKE_AI: "1", CRON_SECRET: "k", DATABASE_URL: process.env.TEST_DATABASE_URL || "", PGSSL: "disable", TELEGRAM_BOT_TOKEN: "", PUBLIC_URL: BASE,
+    INSTAGRAM_APP_ID: "app1", INSTAGRAM_APP_SECRET: IG_SECRET, INSTAGRAM_VERIFY_TOKEN: "vt", IG_API_BASE: `http://localhost:${IG_PORT}`, IG_GRAPH_BASE: `http://localhost:${IG_PORT}` }, stdio: "inherit" });
   for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE + "/api/health")).ok) return; } catch {} await wait(250); }
   throw new Error("server did not start");
 });
-after(() => proc?.kill());
+after(() => { proc?.kill(); igMock.close(); });
 
 test("health", async () => {
   const r = await call("/api/health");
@@ -133,6 +163,71 @@ test("Telegram Business: AI answers in the owner's own account, owner takeover p
   st = await call("/api/state");
   c = st.json.doc.convos.find((x) => x.id === "tg901");
   assert.equal(c.msgs[c.msgs.length - 1].from, "client", "AI stays silent after the owner took over");
+});
+
+test("Instagram: one-button login, webhook checks, AI answers in Direct, owner takeover", async () => {
+  // webhook verification by Meta
+  assert.equal(await (await fetch(BASE + "/api/instagram/webhook?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=123")).text(), "123");
+  assert.equal((await fetch(BASE + "/api/instagram/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=1")).status, 403);
+  assert.equal((await fetch(BASE + "/api/instagram/webhook", { method: "POST", headers: { "x-hub-signature-256": "sha256=00" }, body: "{}" })).status, 403, "unsigned delivery rejected");
+
+  // "Connect Instagram" sends the owner to instagram.com with a signed state
+  const go = await fetch(BASE + "/api/instagram/connect", { headers: { cookie }, redirect: "manual" });
+  assert.equal(go.status, 302);
+  const auth = new URL(go.headers.get("location"));
+  assert.equal(auth.host, "www.instagram.com");
+  assert.equal(auth.searchParams.get("redirect_uri"), BASE + "/api/instagram/callback");
+  assert.match(auth.searchParams.get("scope"), /instagram_business_manage_messages/);
+  const state = auth.searchParams.get("state");
+  const forged = await fetch(BASE + "/api/instagram/callback?code=good&state=forged", { redirect: "manual" });
+  assert.match(forged.headers.get("location"), /ig=denied/);
+  const bad = await fetch(BASE + `/api/instagram/callback?code=bad&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+  assert.match(bad.headers.get("location"), /ig=error/);
+  const cb = await fetch(BASE + `/api/instagram/callback?code=good&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+  assert.match(cb.headers.get("location"), /ig=ok/);
+  let st = await call("/api/state");
+  assert.equal(st.json.doc.ig?.username, "studio_test");
+  assert.equal(st.json.doc.channels.instagram, true);
+  // the dashboard cannot overwrite the server-owned connection
+  const d = st.json.doc; d.ig = null;
+  assert.equal((await call("/api/state", { method: "PUT", body: { doc: d, deleted: [] } })).json.doc.ig?.username, "studio_test");
+
+  // a client writes in Direct → the AI answers through the Send API
+  assert.equal((await igHook([{ sender: { id: "4242" }, recipient: { id: "1784" }, timestamp: Date.now(), message: { mid: "m1", text: "hello" } }])).status, 200);
+  for (let i = 0; i < 20 && !igSent.length; i++) await wait(150);
+  assert.equal(igSent.length, 1, "AI reply sent to Instagram");
+  assert.equal(igSent[0].recipient.id, "4242");
+  await igHook([{ sender: { id: "4242" }, recipient: { id: "1784" }, timestamp: Date.now(), message: { mid: "m1", text: "hello" } }]); // Meta retry
+  // Instagram echoes our own reply back: it must not count as the owner typing
+  await igHook([{ sender: { id: "1784" }, recipient: { id: "4242" }, timestamp: Date.now(), message: { mid: "m_out_1", text: "x", is_echo: true } }]);
+  await wait(400);
+  st = await call("/api/state");
+  let c = st.json.doc.convos.find((x) => x.id === "ig4242");
+  assert.ok(c, "conversation created");
+  assert.equal(c.ch, "IG"); assert.equal(c.name, "Lena (@lena_ig)");
+  assert.equal(c.msgs.filter((m) => m.from === "client").length, 1, "duplicate delivery ignored");
+  assert.ok(c.msgs.some((m) => m.from === "bot"));
+  assert.equal(c.human, false, "own echo is not a takeover");
+
+  // the owner answers from the Instagram app → AI pauses in this chat
+  await igHook([{ sender: { id: "1784" }, recipient: { id: "4242" }, timestamp: Date.now(), message: { mid: "m_owner", text: "I will answer", is_echo: true } }]);
+  await wait(300);
+  await igHook([{ sender: { id: "4242" }, recipient: { id: "1784" }, timestamp: Date.now(), message: { mid: "m2", text: "ok" } }]);
+  await wait(400);
+  st = await call("/api/state");
+  c = st.json.doc.convos.find((x) => x.id === "ig4242");
+  assert.equal(c.human, true);
+  assert.equal(igSent.length, 1, "AI silent after takeover");
+
+  // a reply from the Reza dashboard goes to Direct
+  assert.equal((await call("/api/convos/ig4242/reply", { method: "POST", body: { text: "See you!" } })).status, 200);
+  assert.equal(igSent.at(-1).message.text, "See you!");
+
+  // disconnect
+  await call("/api/instagram/disconnect", { method: "POST", body: {} });
+  st = await call("/api/state");
+  assert.equal(st.json.doc.ig, null);
+  assert.equal((await call("/api/me")).json.business.igReady, true);
 });
 
 test("deleting an item from the dashboard removes it on the server", async () => {
