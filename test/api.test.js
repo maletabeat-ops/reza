@@ -25,7 +25,12 @@ const doc = {
 
 before(async () => {
   fs.rmSync(DB, { recursive: true, force: true });
-  proc = spawn("node", ["src/server.js"], { env: { ...process.env, PORT: String(PORT), PGLITE_DIR: DB, REZA_FAKE_AI: "1", CRON_SECRET: "k", DATABASE_URL: "", TELEGRAM_BOT_TOKEN: "" }, stdio: "inherit" });
+  if (process.env.TEST_DATABASE_URL) { // start from empty tables on a real Postgres
+    const { default: postgres } = await import("postgres");
+    const sql = postgres(process.env.TEST_DATABASE_URL, { onnotice: () => {} });
+    await sql.unsafe("drop table if exists tg_chats, businesses, users cascade"); await sql.end();
+  }
+  proc = spawn("node", ["src/server.js"], { env: { ...process.env, PORT: String(PORT), PGLITE_DIR: DB, REZA_FAKE_AI: "1", CRON_SECRET: "k", DATABASE_URL: process.env.TEST_DATABASE_URL || "", PGSSL: "disable", TELEGRAM_BOT_TOKEN: "" }, stdio: "inherit" });
   for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE + "/api/health")).ok) return; } catch {} await wait(250); }
   throw new Error("server did not start");
 });
@@ -41,6 +46,7 @@ test("sign up, session and duplicate e-mail", async () => {
   assert.equal(r.status, 200, JSON.stringify(r.json));
   slug = r.json.business.slug;
   assert.match(slug, /^studio-test/);
+  assert.equal(typeof r.json.doc, "object", "document is stored as JSON, not as a string");
   assert.equal(r.json.doc.biz.cur, "₽");
   const me = await call("/api/me");
   assert.equal(me.json.user.email, "anna@test.dev");
@@ -67,6 +73,7 @@ test("dashboard saves settings and keeps server-only fields", async () => {
 let slot;
 test("public catalogue lists the business and books a free slot once", async () => {
   const list = await call("/api/public/masters");
+  assert.equal(list.status, 200);
   const m = list.json.masters.find((x) => x.slug === slug);
   assert.ok(m, "business is listed"); assert.ok(m.free.length > 0);
   slot = m.free[0];

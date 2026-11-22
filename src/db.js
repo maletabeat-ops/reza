@@ -44,6 +44,8 @@ async function migrate() {
        tg_code text,
        updated_at timestamptz not null default now())`,
     `create index if not exists businesses_user_idx on businesses(user_id)`,
+    // repair: documents saved as a JSON string by an earlier version
+    `update businesses set doc = (doc #>> '{}')::jsonb where jsonb_typeof(doc) = 'string'`,
     `create table if not exists tg_chats (
        chat_id bigint primary key,
        business_id text not null references businesses(id) on delete cascade,
@@ -56,7 +58,13 @@ async function migrate() {
 export async function getBusiness(where, value) {
   const col = { id: "id", user: "user_id", slug: "slug", code: "tg_code", owner: "tg_owner_chat" }[where];
   const rows = await q(`select * from businesses where ${col} = $1 limit 1`, [value]);
-  return rows[0] || null;
+  return rows[0] ? fixRow(rows[0]) : null;
+}
+
+// The document must always be an object (the Postgres driver can hand back a string).
+export function fixRow(row) {
+  if (row && typeof row.doc === "string") { try { row.doc = JSON.parse(row.doc); } catch {} }
+  return row;
 }
 
 // Read-modify-write of a business document with optimistic locking (ver column).
@@ -67,7 +75,7 @@ export async function updateDoc(businessId, mutate) {
     const doc = structuredClone(row.doc);
     const result = await mutate(doc, row);
     const upd = await q(
-      `update businesses set doc = $2::jsonb, ver = ver + 1, updated_at = now() where id = $1 and ver = $3 returning ver`,
+      `update businesses set doc = ($2::text)::jsonb, ver = ver + 1, updated_at = now() where id = $1 and ver = $3 returning ver`,
       [businessId, JSON.stringify(doc), row.ver],
     );
     if (upd.length) return { doc, ver: upd[0].ver, result, row };

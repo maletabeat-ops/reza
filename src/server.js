@@ -5,7 +5,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import crypto from "node:crypto";
-import { initDb, q, getBusiness, updateDoc } from "./db.js";
+import { initDb, q, getBusiness, updateDoc, fixRow } from "./db.js";
 import { hashPassword, checkPassword, makeSession, readSession, newId } from "./auth.js";
 import { mergeDoc } from "./merge.js";
 import { buildSystem, applyDecision, freeSlots, slotFree, localNow, addDaysIso, TZ_DEFAULT, uid } from "./logic.js";
@@ -71,12 +71,15 @@ app.post("/api/auth/signup", async (c) => {
   if (!doc.biz || !Array.isArray(doc.biz.services)) return bad(c, "invalid");
   const userId = newId("u_");
   await q(`insert into users (id, email, name, pass) values ($1,$2,$3,$4)`, [userId, email, name, hashPassword(password)]);
-  doc.biz.tz = TZ_DEFAULT[locale]; doc.biz.cur = locale === "ru" ? "₽" : "€";
+  // time zone from the owner's device (validated), currency chosen in the form; sensible defaults otherwise
+  const tzOk = (tz) => { try { new Intl.DateTimeFormat("en", { timeZone: tz }); return true; } catch { return false; } };
+  doc.biz.tz = typeof doc.biz.tz === "string" && tzOk(doc.biz.tz) ? doc.biz.tz : TZ_DEFAULT[locale];
+  doc.biz.cur = ["₽", "€"].includes(doc.biz.cur) ? doc.biz.cur : (locale === "ru" ? "₽" : "€");
   doc.biz.mode = sphere === "beauty" ? "booking" : "request";
   Object.assign(doc, { items: [], convos: [], alerts: [], activity: [], readAt: 0 });
   let slug = slugify(doc.biz.name || name);
   if (await getBusiness("slug", slug)) slug = `${slug}-${crypto.randomBytes(2).toString("hex")}`;
-  await q(`insert into businesses (id, user_id, slug, sphere, locale, doc, tg_code) values ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+  await q(`insert into businesses (id, user_id, slug, sphere, locale, doc, tg_code) values ($1,$2,$3,$4,$5,($6::text)::jsonb,$7)`,
     [newId("b_"), userId, slug, sphere, locale, JSON.stringify(doc), crypto.randomBytes(8).toString("hex")]);
   startSession(c, userId);
   const row = await getBusiness("user", userId);
@@ -189,7 +192,7 @@ const publicMaster = (row) => {
 };
 app.get("/api/public/masters", async (c) => {
   const rows = await q(`select * from businesses where published = true and sphere in ('beauty','artisan') order by updated_at desc limit 200`);
-  return c.json({ masters: rows.map(publicMaster) });
+  return c.json({ masters: rows.map(fixRow).map(publicMaster) });
 });
 app.get("/api/public/masters/:slug", async (c) => {
   const row = await getBusiness("slug", c.req.param("slug"));
