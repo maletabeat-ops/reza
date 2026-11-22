@@ -129,7 +129,7 @@ Set "booking" to null.`;
 const fmtShort = (iso) => iso.slice(8, 10) + "." + iso.slice(5, 7);
 
 // Apply an AI decision to the document. Returns the text to send and owner notifications.
-export function applyDecision(doc, convo, res, { locale, source = "TG", chatId = null }) {
+export function applyDecision(doc, convo, res, { locale, source = "TG", chatId = null, bizConn = null }) {
   const T = tx(locale), notify = [];
   let reply = String(res.reply || "").trim();
   const now = Date.now();
@@ -143,7 +143,7 @@ export function applyDecision(doc, convo, res, { locale, source = "TG", chatId =
       if (slotFree(doc, date, time)) {
         if (existing) existing.status = "cancelled";
         const name = String(bk.name || convo.name).slice(0, 60);
-        doc.items.push({ id: uid(), kind: "booking", client: name, service: svc.name, price: svc.price, date, time, source, status: "new", example: false, convo: convo.id, chatId, deposit: !!doc.guard?.deposit, createdAt: now });
+        doc.items.push({ id: uid(), kind: "booking", client: name, service: svc.name, price: svc.price, date, time, source, status: "new", example: false, convo: convo.id, chatId, bizConn, deposit: !!doc.guard?.deposit, createdAt: now });
         doc.alerts.push({ id: uid(), type: "book", name, x: `${fmtShort(date)} ${time}`, ts: now });
         doc.activity.push({ kind: "book", name, x: `${svc.name}, ${fmtShort(date)} ${time}`, ts: now });
         notify.push(T.n_book(name, svc.name, fmtDay(date, locale), time));
@@ -160,7 +160,7 @@ export function applyDecision(doc, convo, res, { locale, source = "TG", chatId =
     const data = { client: String(r.name || convo.name).slice(0, 60), title: String(r.title || "—").slice(0, 90), address: String(r.address || "—").slice(0, 120), details: String(r.details || "").slice(0, 300), urgency, assignee: String(r.assignee || "").slice(0, 40), value: Math.max(0, Math.round(+r.value || 0)) };
     if (existing) Object.assign(existing, data, { status: "new" });
     else {
-      doc.items.push({ id: uid(), kind: "request", date: localNow(doc.biz.tz).date, source, status: "new", stage: "new", example: false, convo: convo.id, chatId, createdAt: now, ...data });
+      doc.items.push({ id: uid(), kind: "request", date: localNow(doc.biz.tz).date, source, status: "new", stage: "new", example: false, convo: convo.id, chatId, bizConn, createdAt: now, ...data });
       doc.alerts.push({ id: uid(), type: "req", name: data.client, x: data.title, ts: now });
       doc.activity.push({ kind: "req", name: data.client, x: data.title, ts: now });
       notify.push(T.n_req(data.client, data.title, T.urg[urgency]));

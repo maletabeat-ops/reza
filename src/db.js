@@ -46,6 +46,12 @@ async function migrate() {
     `create index if not exists businesses_user_idx on businesses(user_id)`,
     // repair: documents saved as a JSON string by an earlier version
     `update businesses set doc = (doc #>> '{}')::jsonb where jsonb_typeof(doc) = 'string'`,
+    `create table if not exists tg_business (
+       conn_id text primary key,
+       business_id text not null references businesses(id) on delete cascade,
+       owner_chat bigint not null,
+       enabled boolean not null default true,
+       updated_at timestamptz not null default now())`,
     `create table if not exists tg_chats (
        chat_id bigint primary key,
        business_id text not null references businesses(id) on delete cascade,

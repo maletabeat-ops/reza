@@ -27,7 +27,8 @@ export async function tg(method, body) {
     return null;
   }
 }
-export const sendText = (chatId, text) => (chatId && text ? tg("sendMessage", { chat_id: chatId, text }) : null);
+// bizConn: reply from the owner's own account (Telegram Business) instead of from the Reza bot
+export const sendText = (chatId, text, bizConn = null) => (chatId && text ? tg("sendMessage", { chat_id: chatId, text, ...(bizConn ? { business_connection_id: bizConn } : {}) }) : null);
 
 export async function setupTelegram(publicUrl) {
   if (!TOKEN) return;
@@ -37,7 +38,7 @@ export async function setupTelegram(publicUrl) {
     await tg("setWebhook", {
       url: `${publicUrl.replace(/\/$/, "")}/api/telegram`,
       secret_token: WEBHOOK_SECRET,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "business_connection", "business_message"],
     });
     console.log(`[tg] webhook set for @${botUsername}`);
   }
@@ -49,6 +50,8 @@ export async function notifyOwner(row, texts) {
 }
 
 export async function handleUpdate(update, publicUrl) {
+  if (update.business_connection) return handleBizConnection(update.business_connection);
+  if (update.business_message) return handleBizMessage(update.business_message);
   const msg = update.message;
   if (!msg || !msg.chat || msg.chat.type !== "private" || typeof msg.text !== "string") return;
   const chatId = msg.chat.id, text = msg.text.trim();
@@ -82,13 +85,52 @@ export async function handleUpdate(update, publicUrl) {
   await handleClientMessage(link.business_id, chatId, who, text.slice(0, 2000));
 }
 
-export async function handleClientMessage(businessId, chatId, who, text) {
+// Telegram Business: the owner added the Reza bot in Settings → Telegram Business → Chatbots
+async function handleBizConnection(bc) {
+  const ownerChat = bc.user_chat_id || bc.user?.id;
+  const row = (await getBusiness("owner", ownerChat)) || (await getBusiness("owner", bc.user?.id));
+  if (!row) { await sendText(ownerChat, tx("ru").biz_need_link); return; }
+  const canReply = bc.rights ? !!bc.rights.can_reply : bc.can_reply !== false;
+  const enabled = !!bc.is_enabled;
+  await q(`insert into tg_business (conn_id, business_id, owner_chat, enabled, updated_at) values ($1,$2,$3,$4,now())
+           on conflict (conn_id) do update set business_id = excluded.business_id, owner_chat = excluded.owner_chat, enabled = excluded.enabled, updated_at = now()`,
+    [bc.id, row.id, ownerChat, enabled && canReply]);
+  await updateDoc(row.id, (d) => { d.tgBiz = { enabled, canReply, ts: Date.now() }; });
+  const T = tx(row.locale);
+  await sendText(ownerChat, !enabled ? T.biz_off : canReply ? T.biz_on(row.doc.biz.name) : T.biz_no_reply);
+}
+
+// A message in one of the owner's own chats (from a client, or written by the owner)
+async function handleBizMessage(m) {
+  if (typeof m.text !== "string" || !m.chat || m.chat.type !== "private") return;
+  const link = (await q(`select * from tg_business where conn_id = $1`, [m.business_connection_id]))[0];
+  if (!link || !link.enabled) return;
+  const chatId = m.chat.id, text = m.text.trim().slice(0, 2000);
+  const who = [m.chat.first_name, m.chat.last_name].filter(Boolean).join(" ") || "Telegram";
+  if (String(m.from?.id) === String(link.owner_chat)) {
+    // the owner answered personally: keep the message and pause the AI in this chat
+    await updateDoc(link.business_id, (d) => {
+      const id = "tg" + chatId;
+      let c = d.convos.find((x) => x.id === id);
+      if (!c) { c = { id, name: who, ch: "TG", status: "ai", human: false, read: true, ts: Date.now(), chatId, msgs: [] }; d.convos.push(c); }
+      c.bizConn = link.conn_id;
+      c.msgs.push({ from: "owner", text, ts: Date.now() });
+      if (d.guard?.pause !== false && !c.human) { c.human = true; c.msgs.push({ from: "sys", text: "note_takeover", key: true, ts: Date.now() }); }
+      c.read = true; c.ts = Date.now();
+    });
+    return;
+  }
+  await handleClientMessage(link.business_id, chatId, who, text, { bizConn: link.conn_id });
+}
+
+export async function handleClientMessage(businessId, chatId, who, text, opts = {}) {
   const convoId = "tg" + chatId;
   // 1) store the message
   const { doc, row } = await updateDoc(businessId, (doc) => {
     let c = doc.convos.find((x) => x.id === convoId);
     if (!c) { c = { id: convoId, name: who, ch: "TG", status: "ai", human: false, read: true, ts: Date.now(), chatId, msgs: [] }; doc.convos.push(c); }
     c.msgs.push({ from: "client", text, ts: Date.now() });
+    c.bizConn = opts.bizConn || null;
     c.ts = Date.now();
     if (c.msgs.length > 200) c.msgs = c.msgs.slice(-200);
   });
@@ -127,11 +169,11 @@ export async function handleClientMessage(businessId, chatId, who, text) {
       d.alerts.push({ id: uid(), type: "handoff", name: c.name, ts: Date.now(), convo: c.id });
       out = { reply: T.wait_owner, notify: [T.n_wait(c.name, text.slice(0, 120))] };
     } else {
-      out = applyDecision(d, c, decision, { locale, source: "TG", chatId });
+      out = applyDecision(d, c, decision, { locale, source: "TG", chatId, bizConn: opts.bizConn || null });
     }
     if (out.reply) c.msgs.push({ from: "bot", text: out.reply, ts: Date.now(), src: decision.sources || [] });
     if (decision.note) c.note = decision.note;
   });
-  if (out.reply) await sendText(chatId, out.reply);
+  if (out.reply) await sendText(chatId, out.reply, opts.bizConn || null);
   await notifyOwner(row, out.notify);
 }

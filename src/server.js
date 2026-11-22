@@ -142,15 +142,15 @@ app.post("/api/convos/:id/reply", auth, async (c) => {
   const text = String(b.text || "").trim().slice(0, 2000);
   if (!text) return bad(c, "empty");
   const row = c.get("biz"), id = c.req.param("id");
-  let chatId = null;
+  let chatId = null, bizConn = null;
   const { doc, ver } = await updateDoc(row.id, (d) => {
     const conv = d.convos.find((x) => x.id === id);
     if (!conv) throw Object.assign(new Error("nf"), { status: 404 });
-    chatId = conv.chatId;
+    chatId = conv.chatId; bizConn = conv.bizConn || null;
     const fromDraft = !!b.fromDraft && conv.draft;
     if (fromDraft) {
       const decision = { ...conv.draft, reply: text };
-      const out = applyDecision(d, conv, decision, { locale: row.locale, source: "TG", chatId });
+      const out = applyDecision(d, conv, decision, { locale: row.locale, source: "TG", chatId, bizConn });
       conv.msgs.push({ from: "bot", text: out.reply || text, ts: Date.now(), src: conv.draft.sources || [] });
       delete conv.draft;
       conv.status = "ai";
@@ -163,7 +163,7 @@ app.post("/api/convos/:id/reply", auth, async (c) => {
     d.activity.push({ kind: "owner", name: conv.name, ts: Date.now() });
   }).catch((e) => ({ error: e }));
   if (!doc) return bad(c, "not_found", 404);
-  if (chatId) await sendText(chatId, text);
+  if (chatId) await sendText(chatId, text, bizConn);
   return c.json({ doc, ver });
 });
 
@@ -254,7 +254,7 @@ app.post("/api/telegram", async (c) => {
   const update = await c.req.json().catch(() => null);
   if (update) {
     // answer Telegram at once, but handle each chat's messages strictly in order
-    const key = update.message?.chat?.id ?? "x";
+    const key = update.message?.chat?.id ?? update.business_message?.chat?.id ?? update.business_connection?.user_chat_id ?? "x";
     const prev = chatQueues.get(key) || Promise.resolve();
     const next = prev.then(() => handleUpdate(update, PUBLIC_URL)).catch((e) => console.error("[tg] update failed", e));
     chatQueues.set(key, next);
@@ -277,11 +277,11 @@ app.all("/api/cron/reminders", async (c) => {
       for (const it of d.items) {
         if (it.kind === "booking" && it.date === tomorrow && it.chatId && !it.reminded && it.status !== "cancelled") {
           it.reminded = true;
-          todo.push([it.chatId, tx(r.locale).remind(it.client, it.service, d.biz.name, it.time, d.biz.address)]);
+          todo.push([it.chatId, tx(r.locale).remind(it.client, it.service, d.biz.name, it.time, d.biz.address), it.bizConn || null]);
         }
       }
     });
-    for (const [chat, text] of todo) { await sendText(chat, text); sent++; }
+    for (const [chat, text, conn] of todo) { await sendText(chat, text, conn); sent++; }
   }
   return c.json({ ok: true, sent });
 });

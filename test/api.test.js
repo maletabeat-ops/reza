@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 
 const PORT = 3999, BASE = `http://localhost:${PORT}`, DB = "/tmp/reza-test-db";
-let proc, cookie = "", slug = "";
+let proc, cookie = "", slug = "", tgCode = "";
 
 const call = async (path, { method = "GET", body, headers = {} } = {}) => {
   const r = await fetch(BASE + path, { method, headers: { "content-type": "application/json", cookie, ...headers }, body: body ? JSON.stringify(body) : undefined, redirect: "manual" });
@@ -44,7 +44,7 @@ test("health", async () => {
 test("sign up, session and duplicate e-mail", async () => {
   const r = await call("/api/auth/signup", { method: "POST", body: { name: "Anna", email: "anna@test.dev", password: "secret1", sphere: "beauty", locale: "ru", doc } });
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  slug = r.json.business.slug;
+  slug = r.json.business.slug; tgCode = r.json.business.tgCode;
   assert.match(slug, /^studio-test/);
   assert.equal(typeof r.json.doc, "object", "document is stored as JSON, not as a string");
   assert.equal(r.json.doc.biz.cur, "₽");
@@ -108,6 +108,31 @@ test("Telegram: while the owner handles the chat, the AI stays silent", async ()
   const conv = st.json.doc.convos.find((c) => c.id === "tg555");
   assert.equal(conv.msgs[conv.msgs.length - 1].from, "client");
   assert.equal(conv.status, "waiting");
+});
+
+test("Telegram Business: AI answers in the owner's own account, owner takeover pauses it", async () => {
+  const send = (update) => call("/api/telegram", { method: "POST", body: { update_id: Date.now(), ...update } });
+  await tgUpdate(900, `/start pro_${tgCode}`); // owner links notifications
+  await send({ business_connection: { id: "bc1", user: { id: 900, first_name: "Owner" }, user_chat_id: 900, date: 0, rights: { can_reply: true }, is_enabled: true } });
+  await wait(300);
+  let st = await call("/api/state");
+  assert.equal(st.json.doc.tgBiz?.enabled, true, "connection stored");
+  await send({ business_message: { message_id: 1, date: 0, business_connection_id: "bc1", chat: { id: 901, type: "private", first_name: "Lena" }, from: { id: 901, first_name: "Lena" }, text: "hello" } });
+  for (let i = 0; i < 20; i++) { await wait(150); st = await call("/api/state"); if (st.json.doc.convos.find((c) => c.id === "tg901")?.msgs.some((m) => m.from === "bot")) break; }
+  let c = st.json.doc.convos.find((x) => x.id === "tg901");
+  assert.ok(c, "conversation from the owner's account");
+  assert.equal(c.bizConn, "bc1");
+  assert.ok(c.msgs.some((m) => m.from === "bot"), "AI replied");
+  await send({ business_message: { message_id: 2, date: 0, business_connection_id: "bc1", chat: { id: 901, type: "private", first_name: "Lena" }, from: { id: 900, first_name: "Owner" }, text: "I will take it from here" } });
+  await wait(400);
+  st = await call("/api/state");
+  c = st.json.doc.convos.find((x) => x.id === "tg901");
+  assert.equal(c.human, true, "owner wrote personally, AI paused");
+  await send({ business_message: { message_id: 3, date: 0, business_connection_id: "bc1", chat: { id: 901, type: "private", first_name: "Lena" }, from: { id: 901 }, text: "ok thanks" } });
+  await wait(400);
+  st = await call("/api/state");
+  c = st.json.doc.convos.find((x) => x.id === "tg901");
+  assert.equal(c.msgs[c.msgs.length - 1].from, "client", "AI stays silent after the owner took over");
 });
 
 test("deleting an item from the dashboard removes it on the server", async () => {

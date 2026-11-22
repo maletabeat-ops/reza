@@ -16,6 +16,10 @@ export const TX = {
     taken: (alt) => `Ой, это время только что заняли 🙈 Свободно: ${alt}. Какое удобнее?`,
     error: "Извините, сейчас не могу ответить. Мастер свяжется с вами лично.",
     web: "сайт",
+    biz_need_link: "Чтобы Reza отвечала в вашем Telegram, сначала откройте кабинет Reza → Интеграции → «Подключить уведомления», затем подключите бота в настройках Telegram ещё раз.",
+    biz_on: (b) => `Готово ✅ Reza подключена к вашему Telegram и отвечает новым клиентам от имени «${b}». Как только вы ответите в чате сами, ИИ в нём замолчит.`,
+    biz_no_reply: "Reza подключена, но без права отвечать. В настройках Telegram → Telegram для бизнеса → Чат-боты включите «Отвечать на сообщения».",
+    biz_off: "Reza отключена от вашего Telegram. Подключить снова можно в любой момент.",
   },
   fr: {
     hello: (biz) => `Bonjour ! 👋 Ici l'assistante IA de « ${biz} ». Écrivez-moi : prix, disponibilités, réservation.`,
@@ -33,6 +37,10 @@ export const TX = {
     taken: (alt) => `Oups, ce créneau vient d'être pris 🙈 Il me reste : ${alt}. Lequel vous irait ?`,
     error: "Désolé, je ne peux pas répondre pour l'instant. Le pro vous recontacte personnellement.",
     web: "site",
+    biz_need_link: "Pour que Reza réponde dans votre Telegram, ouvrez d'abord votre espace Reza → Intégrations → « Activer les notifications », puis reconnectez le bot dans les réglages Telegram.",
+    biz_on: (b) => `C'est fait ✅ Reza est connectée à votre Telegram et répond aux nouveaux clients au nom de « ${b} ». Dès que vous répondez vous-même dans un chat, l'IA s'y met en pause.`,
+    biz_no_reply: "Reza est connectée mais sans droit de réponse. Dans Telegram → Telegram Business → Chatbots, activez « Répondre aux messages ».",
+    biz_off: "Reza est déconnectée de votre Telegram. Vous pouvez la reconnecter à tout moment.",
   },
   de: {
     hello: (biz) => `Hallo! 👋 Hier ist die KI-Assistenz von „${biz}“. Schreiben Sie mir: Preise, freie Termine, Buchung.`,
@@ -50,6 +58,10 @@ export const TX = {
     taken: (alt) => `Oh, dieser Termin ist gerade weg 🙈 Frei sind noch: ${alt}. Was passt Ihnen?`,
     error: "Entschuldigung, ich kann gerade nicht antworten. Der Profi meldet sich persönlich.",
     web: "Website",
+    biz_need_link: "Damit Reza in Ihrem Telegram antwortet, öffnen Sie zuerst Ihren Reza-Profibereich → Integrationen → „Benachrichtigungen aktivieren“ und verbinden Sie den Bot dann erneut in den Telegram-Einstellungen.",
+    biz_on: (b) => `Erledigt ✅ Reza ist mit Ihrem Telegram verbunden und antwortet neuen Kunden im Namen von „${b}“. Sobald Sie selbst im Chat antworten, pausiert die KI dort.`,
+    biz_no_reply: "Reza ist verbunden, darf aber nicht antworten. Aktivieren Sie in Telegram → Telegram Business → Chatbots „Auf Nachrichten antworten“.",
+    biz_off: "Reza ist von Ihrem Telegram getrennt. Sie können sie jederzeit wieder verbinden.",
   },
 };
 export const tx = (locale) => TX[locale] || TX.ru;
