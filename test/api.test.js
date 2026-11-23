@@ -165,6 +165,21 @@ test("Telegram Business: AI answers in the owner's own account, owner takeover p
   assert.equal(c.msgs[c.msgs.length - 1].from, "client", "AI stays silent after the owner took over");
 });
 
+test("without an AI key the client still gets prices, free times and the booking link", async () => {
+  await tgUpdate(777, `/start ${slug}`);
+  const last = async () => { const c = (await call("/api/state")).json.doc.convos.find((x) => x.id === "tg777"); return c; };
+  await tgUpdate(777, "NOAI hi"); await wait(400);
+  let c = await last();
+  const r1 = c.msgs.at(-1);
+  assert.equal(r1.from, "bot");
+  assert.match(r1.text, /Manicure/); assert.match(r1.text, new RegExp(`/m/${slug}`));
+  assert.equal(c.status, "waiting");
+  await tgUpdate(777, "NOAI again"); await wait(400);
+  c = await last(); assert.equal(c.msgs.at(-1).from, "bot"); assert.doesNotMatch(c.msgs.at(-1).text, /Manicure/, "short acknowledgement");
+  await tgUpdate(777, "NOAI third"); await wait(400);
+  c = await last(); assert.equal(c.msgs.at(-1).from, "client", "no repeated acknowledgements");
+});
+
 test("Instagram: one-button login, webhook checks, AI answers in Direct, owner takeover", async () => {
   // webhook verification by Meta
   assert.equal(await (await fetch(BASE + "/api/instagram/webhook?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=123")).text(), "123");
@@ -257,6 +272,15 @@ test("account deletion needs the password and removes the business", async () =>
   assert.equal((await call("/api/account", { method: "DELETE", body: { password: "secret1" } })).status, 200);
   const list = await call("/api/public/masters");
   assert.ok(!list.json.masters.some((m) => m.slug === slug));
+});
+
+test("legal pages are public and localised", async () => {
+  for (const path of ["/privacy", "/terms", "/data-deletion"]) {
+    const r = await fetch(BASE + path + "?lang=fr"); assert.equal(r.status, 200);
+    assert.match(await r.text(), /lang="fr"/);
+  }
+  assert.match(await (await fetch(BASE + "/privacy", { headers: { "accept-language": "de-DE,de;q=0.9" } })).text(), /Datenschutzerklärung/);
+  assert.match(await (await fetch(BASE + "/privacy")).text(), /Privacy policy/);
 });
 
 test("the web app is served", async () => {

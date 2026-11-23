@@ -2,9 +2,20 @@
 // Clients open t.me/<bot>?start=<business-slug>; owners link notifications with ?start=pro_<code>.
 import crypto from "node:crypto";
 import { q, getBusiness, updateDoc } from "./db.js";
-import { tx } from "./i18n.js";
-import { buildSystem, applyDecision, toMessages, inHoursNow, uid } from "./logic.js";
-import { decide } from "./ai.js";
+import { tx, fmtDay } from "./i18n.js";
+import { buildSystem, applyDecision, toMessages, inHoursNow, uid, freeSlots } from "./logic.js";
+import { decide, aiConfigured } from "./ai.js";
+
+const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+
+// Without an AI key Reza still answers: services, prices, the next free times and the online booking link.
+export function basicReply(doc, row, locale) {
+  const cur = doc.biz.cur || "";
+  const prices = (doc.biz.services || []).slice(0, 12).map((s) => `• ${s.name} — ${s.price} ${cur}`.trim()).join("\n");
+  const free = freeSlots(doc, 7).slice(0, 3).map((x) => `${fmtDay(x.date, locale)} ${x.time}`).join(", ");
+  const link = PUBLIC_URL && row.published !== false ? `${PUBLIC_URL}/m/${row.slug}` : "";
+  return tx(locale).basic(doc.biz.name, prices, free, link);
+}
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // Telegram accepts only [A-Za-z0-9_-] in the webhook secret, so derive one from the server secrets.
@@ -169,7 +180,14 @@ export async function handleClientMessage(businessId, chatId, who, text, opts = 
     if (decision.failed) {
       c.status = "waiting"; c.read = false;
       d.alerts.push({ id: uid(), type: "handoff", name: c.name, ts: Date.now(), convo: c.id });
-      out = { reply: T.wait_owner, notify: [T.n_wait(c.name, text.slice(0, 120))] };
+      let reply = T.wait_owner;
+      if (!aiConfigured()) { // basic mode: full info once a day per chat, then a short acknowledgement
+        const fresh = !c.basicTs || Date.now() - c.basicTs > 20 * 3600e3;
+        const ack = !fresh && (!c.ackTs || Date.now() - c.ackTs > 20 * 3600e3);
+        reply = fresh ? basicReply(d, row, locale) : ack ? T.basic_more : "";
+        if (fresh) { c.basicTs = Date.now(); c.ackTs = 0; } else if (ack) c.ackTs = Date.now();
+      }
+      out = { reply, notify: [T.n_wait(c.name, text.slice(0, 120))] };
     } else {
       out = applyDecision(d, c, decision, { locale, source: ch, chatId, bizConn: opts.bizConn || null });
     }

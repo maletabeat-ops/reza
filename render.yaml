@@ -29,3 +29,5 @@ services:
         sync: false
       - key: INSTAGRAM_VERIFY_TOKEN
         sync: false
+      - key: CONTACT_EMAIL
+        sync: false

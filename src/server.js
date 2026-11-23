@@ -12,6 +12,7 @@ import { buildSystem, applyDecision, freeSlots, slotFree, localNow, addDaysIso, 
 import { decide, importPrices, aiConfigured } from "./ai.js";
 import { handleUpdate, setupTelegram, sendText, notifyOwner, getBotUsername, tgConfigured, WEBHOOK_SECRET } from "./telegram.js";
 import { tx, fmtDay } from "./i18n.js";
+import { legalPage, pickLang } from "./legal.js";
 import { igConfigured, igVerifyToken, authorizeUrl, connectAccount, disconnectAccount, igSend, validSignature, handleWebhook as handleIgWebhook, refreshTokens, igIdForBusiness, migrateInstagram } from "./instagram.js";
 
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
@@ -294,6 +295,16 @@ app.post("/api/instagram/webhook", async (c) => {
 app.all("/api/cron/reminders", async (c) => {
   const key = process.env.CRON_SECRET;
   if (!key || (c.req.query("key") !== key && c.req.header("authorization") !== `Bearer ${key}`)) return c.text("forbidden", 403);
+  return c.json({ ok: true, sent: await runReminders() });
+});
+// The server also checks by itself every 30 minutes while it is awake.
+let remindersBusy = false;
+async function runReminders() {
+  if (remindersBusy) return 0;
+  remindersBusy = true;
+  try { return await remindersOnce(); } finally { remindersBusy = false; }
+}
+async function remindersOnce() {
   const rows = await q(`select id, locale from businesses where sphere = 'beauty'`);
   let sent = 0;
   for (const r of rows) {
@@ -316,8 +327,13 @@ app.all("/api/cron/reminders", async (c) => {
     }
   }
   if (igConfigured()) await refreshTokens().catch((e) => console.error("[ig] refresh", e));
-  return c.json({ ok: true, sent });
-});
+  return sent;
+}
+
+// ---------- legal pages (linked from the Meta app settings) ----------
+for (const [path, kind] of [["/privacy", "privacy"], ["/terms", "terms"], ["/data-deletion", "deletion"]]) {
+  app.get(path, (c) => c.html(legalPage(kind, pickLang(c.req.query("lang"), c.req.header("accept-language")))));
+}
 
 // ---------- web app ----------
 app.get("/m/:slug", (c) => c.redirect(`/#m-${encodeURIComponent(c.req.param("slug"))}`));
@@ -334,5 +350,6 @@ if (process.env.REZA_NO_LISTEN !== "1") {
   await migrateInstagram();
   const port = Number(process.env.PORT || 3000);
   serve({ fetch: app.fetch, port }, () => console.log(`Reza is running on http://localhost:${port}`));
+  setInterval(() => runReminders().catch((e) => console.error("[reminders]", e)), 30 * 60e3).unref();
   setupTelegram(PUBLIC_URL).catch((e) => console.error("[tg] setup failed", e));
 }

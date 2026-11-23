@@ -89,6 +89,7 @@ function fakeDecision(messages) {
   const base = { sources: ["prices"], note: "test", booking: null, request: null };
   const m = last.match(/BOOK (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) (.+)/);
   if (m) return { ...base, reply: "Booked", action: "book", booking: { name: m[3], service: "", date: m[1], time: m[2] } };
+  if (/NOAI/.test(last)) return { reply: "", action: "handoff", sources: [], note: "", booking: null, request: null, failed: true };
   if (/complain|жалоб/i.test(last)) return { ...base, reply: "The owner will answer", action: "handoff" };
   return { ...base, reply: "Hello from test AI", action: "none" };
 }

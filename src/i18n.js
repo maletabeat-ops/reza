@@ -19,6 +19,8 @@ export const TX = {
     biz_need_link: "Чтобы Reza отвечала в вашем Telegram, сначала откройте кабинет Reza → Интеграции → «Подключить уведомления», затем подключите бота в настройках Telegram ещё раз.",
     biz_on: (b) => `Готово ✅ Reza подключена к вашему Telegram и отвечает новым клиентам от имени «${b}». Как только вы ответите в чате сами, ИИ в нём замолчит.`,
     biz_no_reply: "Reza подключена, но без права отвечать. В настройках Telegram → Telegram для бизнеса → Чат-боты включите «Отвечать на сообщения».",
+    basic: (biz, prices, slots, link) => `Здравствуйте! 👋 Вы написали в «${biz}». Мастер ответит вам лично в ближайшее время.${prices ? `\n\nУслуги и цены:\n${prices}` : ""}${slots ? `\n\nБлижайшее свободное время: ${slots}` : ""}${link ? `\n\nЗаписаться онлайн сразу: ${link}` : ""}`,
+    basic_more: "Спасибо, передала мастеру 🙏",
     biz_off: "Reza отключена от вашего Telegram. Подключить снова можно в любой момент.",
   },
   fr: {
@@ -40,6 +42,8 @@ export const TX = {
     biz_need_link: "Pour que Reza réponde dans votre Telegram, ouvrez d'abord votre espace Reza → Intégrations → « Activer les notifications », puis reconnectez le bot dans les réglages Telegram.",
     biz_on: (b) => `C'est fait ✅ Reza est connectée à votre Telegram et répond aux nouveaux clients au nom de « ${b} ». Dès que vous répondez vous-même dans un chat, l'IA s'y met en pause.`,
     biz_no_reply: "Reza est connectée mais sans droit de réponse. Dans Telegram → Telegram Business → Chatbots, activez « Répondre aux messages ».",
+    basic: (biz, prices, slots, link) => `Bonjour ! 👋 Vous avez écrit à « ${biz} ». Le pro vous répond personnellement très vite.${prices ? `\n\nPrestations et prix :\n${prices}` : ""}${slots ? `\n\nProchains créneaux libres : ${slots}` : ""}${link ? `\n\nRéserver en ligne tout de suite : ${link}` : ""}`,
+    basic_more: "Merci, c'est transmis au pro 🙏",
     biz_off: "Reza est déconnectée de votre Telegram. Vous pouvez la reconnecter à tout moment.",
   },
   de: {
@@ -61,6 +65,8 @@ export const TX = {
     biz_need_link: "Damit Reza in Ihrem Telegram antwortet, öffnen Sie zuerst Ihren Reza-Profibereich → Integrationen → „Benachrichtigungen aktivieren“ und verbinden Sie den Bot dann erneut in den Telegram-Einstellungen.",
     biz_on: (b) => `Erledigt ✅ Reza ist mit Ihrem Telegram verbunden und antwortet neuen Kunden im Namen von „${b}“. Sobald Sie selbst im Chat antworten, pausiert die KI dort.`,
     biz_no_reply: "Reza ist verbunden, darf aber nicht antworten. Aktivieren Sie in Telegram → Telegram Business → Chatbots „Auf Nachrichten antworten“.",
+    basic: (biz, prices, slots, link) => `Hallo! 👋 Sie haben „${biz}“ geschrieben. Der Profi antwortet Ihnen in Kürze persönlich.${prices ? `\n\nLeistungen und Preise:\n${prices}` : ""}${slots ? `\n\nNächste freie Termine: ${slots}` : ""}${link ? `\n\nDirekt online buchen: ${link}` : ""}`,
+    basic_more: "Danke, ich habe es an den Profi weitergegeben 🙏",
     biz_off: "Reza ist von Ihrem Telegram getrennt. Sie können sie jederzeit wieder verbinden.",
   },
 };
