@@ -7,8 +7,8 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import { initDb, q, getBusiness, updateDoc, fixRow } from "./db.js";
 import { hashPassword, checkPassword, makeSession, readSession, newId } from "./auth.js";
-import { mergeDoc } from "./merge.js";
-import { buildSystem, applyDecision, freeSlots, slotFree, localNow, addDaysIso, TZ_DEFAULT, uid } from "./logic.js";
+import { mergeDoc, cleanTeam } from "./merge.js";
+import { buildSystem, applyDecision, freeSlots, slotFree, localNow, addDaysIso, TZ_DEFAULT, uid, activeStaff, findStaff, planFor, PLANS, TRIAL_DAYS } from "./logic.js";
 import { decide, importPrices, aiConfigured } from "./ai.js";
 import { handleUpdate, setupTelegram, sendText, notifyOwner, getBotUsername, tgConfigured, WEBHOOK_SECRET } from "./telegram.js";
 import { tx, fmtDay } from "./i18n.js";
@@ -45,6 +45,8 @@ function meJson(user, row) {
       slug: row.slug, sphere: row.sphere, locale: row.locale, published: row.published,
       tgLinked: !!row.tg_owner_chat, tgCode: row.tg_code, botUsername: getBotUsername(),
       aiReady: aiConfigured(), telegramReady: tgConfigured(), igReady: igConfigured(), publicUrl: PUBLIC_URL,
+      plan: { ...planFor(row.doc), staff: activeStaff(row.doc).length, trialEnds: (row.doc.trialStart || Date.now()) + TRIAL_DAYS * 864e5, paid: !!row.doc.paidUntil && row.doc.paidUntil > Date.now() },
+      plans: PLANS,
     },
     doc: row.doc,
   };
@@ -78,7 +80,8 @@ app.post("/api/auth/signup", async (c) => {
   doc.biz.tz = typeof doc.biz.tz === "string" && tzOk(doc.biz.tz) ? doc.biz.tz : TZ_DEFAULT[locale];
   doc.biz.cur = ["₽", "€"].includes(doc.biz.cur) ? doc.biz.cur : (locale === "ru" ? "₽" : "€");
   doc.biz.mode = sphere === "beauty" ? "booking" : "request";
-  Object.assign(doc, { items: [], convos: [], alerts: [], activity: [], readAt: 0 });
+  Object.assign(doc, { items: [], convos: [], alerts: [], activity: [], readAt: 0, trialStart: Date.now(), team: cleanTeam(doc.team) });
+  delete doc.paidUntil;
   let slug = slugify(doc.biz.name || name);
   if (await getBusiness("slug", slug)) slug = `${slug}-${crypto.randomBytes(2).toString("hex")}`;
   await q(`insert into businesses (id, user_id, slug, sphere, locale, doc, tg_code) values ($1,$2,$3,$4,$5,($6::text)::jsonb,$7)`,
@@ -199,6 +202,7 @@ const publicMaster = (row) => {
     name: d.biz.name, city: d.biz.city, address: d.biz.address, cur: d.biz.cur,
     services: d.biz.services, hours: d.biz.hours, today: now.date,
     free: row.sphere === "beauty" ? freeSlots(d, 8) : [],
+    team: activeStaff(d).map((s) => ({ id: s.id, name: s.name, role: s.role, services: s.services, off: s.off })),
     busyCount: d.items.filter((i) => i.date >= now.date && i.date <= until).length,
     bot: getBotUsername(),
   };
@@ -217,6 +221,7 @@ const BookBody = z.object({
   svc: z.number().int().min(0), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   time: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   addr: z.string().max(200).optional(), prob: z.string().max(1000).optional(),
+  staff: z.string().max(24).nullable().optional(),
 });
 app.post("/api/public/masters/:slug/book", async (c) => {
   const body = BookBody.safeParse(await c.req.json().catch(() => ({})));
@@ -229,12 +234,16 @@ app.post("/api/public/masters/:slug/book", async (c) => {
     const svc = d.biz.services[b.svc]; if (!svc) throw Object.assign(new Error("svc"), { code: "invalid" });
     const now = Date.now();
     if (row.sphere === "beauty") {
-      if (!b.date || !b.time || !slotFree(d, b.date, b.time)) throw Object.assign(new Error("slot"), { code: "slot_taken" });
+      const want = b.staff ? findStaff(d, b.staff) : null;
+      if (b.staff && !want) throw Object.assign(new Error("staff"), { code: "invalid" });
+      const slot = b.date && b.time ? slotFree(d, b.date, b.time, { service: svc.name, staff: want?.id }) : null;
+      if (!slot) throw Object.assign(new Error("slot"), { code: "slot_taken" });
+      const staff = slot.staff ? activeStaff(d).find((s) => s.id === slot.staff[0]) : null;
       itemId = uid();
-      d.items.push({ id: itemId, kind: "booking", client: b.name, phone: b.phone, service: svc.name, price: svc.price, date: b.date, time: b.time, source: "RZ", status: "new", example: false, createdAt: now });
+      d.items.push({ id: itemId, kind: "booking", client: b.name, phone: b.phone, service: svc.name, price: svc.price, date: b.date, time: b.time, ...(staff ? { staff: staff.id, staffName: staff.name } : {}), source: "RZ", status: "new", example: false, createdAt: now });
       d.alerts.push({ id: uid(), type: "book", name: b.name, x: `${b.date.slice(8)}.${b.date.slice(5, 7)} ${b.time}`, ts: now });
       d.activity.push({ kind: "book", name: b.name, x: svc.name, ts: now });
-      note = T.n_book(`${b.name} (${b.phone}, ${T.web})`, svc.name, fmtDay(b.date, row.locale), b.time);
+      note = T.n_book(`${b.name} (${b.phone}, ${T.web})`, staff ? `${svc.name} · ${staff.name}` : svc.name, fmtDay(b.date, row.locale), b.time);
     } else {
       if (!b.addr || !b.prob) throw Object.assign(new Error("addr"), { code: "invalid" });
       itemId = uid();

@@ -14,7 +14,7 @@ const Decision = z.object({
   action: z.enum(["none", "book", "cancel", "request", "handoff", "ignore"]),
   sources: z.array(z.string()).default([]),
   note: z.string().default(""),
-  booking: z.object({ name: z.string(), service: z.string(), date: z.string(), time: z.string() }).nullable().default(null),
+  booking: z.object({ name: z.string(), service: z.string(), date: z.string(), time: z.string(), staff: z.string().default("") }).nullable().default(null),
   request: z.object({
     name: z.string(), title: z.string(), address: z.string(), details: z.string(),
     urgency: z.enum(["high", "normal", "low"]), assignee: z.string(), value: z.number(),
@@ -88,7 +88,7 @@ function fakeDecision(messages) {
   const last = messages[messages.length - 1]?.content || "";
   const base = { sources: ["prices"], note: "test", booking: null, request: null };
   const m = last.match(/BOOK (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) (.+)/);
-  if (m) return { ...base, reply: "Booked", action: "book", booking: { name: m[3], service: "", date: m[1], time: m[2] } };
+  if (m) return { ...base, reply: "Booked", action: "book", booking: { name: m[3].replace(/ WITH .*/, ""), service: "", date: m[1], time: m[2], staff: (m[3].match(/ WITH (.+)/) || [])[1] || "" } };
   if (/NOAI/.test(last)) return { reply: "", action: "handoff", sources: [], note: "", booking: null, request: null, failed: true };
   if (/complain|жалоб/i.test(last)) return { ...base, reply: "The owner will answer", action: "handoff" };
   return { ...base, reply: "Hello from test AI", action: "none" };

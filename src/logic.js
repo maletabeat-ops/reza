@@ -23,21 +23,47 @@ export function addDaysIso(iso, n) {
 }
 const dowOf = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
 
-export function freeSlots(doc, days = 7) {
-  const tz = doc.biz.tz || "Europe/Moscow", now = localNow(tz), res = [];
+// ---------- team (salon mode) ----------
+// doc.team = { kind: "solo" | "salon", staff: [{ id, name, role, services: [names] (empty = all), off: [weekday numbers], active }] }
+export const activeStaff = (doc) => (doc.team?.kind === "salon" ? (doc.team.staff || []).filter((s) => s.active !== false && s.name) : []);
+export const isSalon = (doc) => activeStaff(doc).length > 0;
+const canDo = (s, service) => !service || !s.services?.length || s.services.includes(service);
+const worksOn = (s, dow) => !(s.off || []).includes(dow);
+// A booking without a master (made before the team existed) blocks the whole time slot.
+const busy = (doc, date, time, staffId) => doc.items.some((b) => b.kind === "booking" && b.status !== "cancelled" && b.date === date && b.time === time && (!staffId || !b.staff || b.staff === staffId));
+export const findStaff = (doc, name) => {
+  const n = String(name || "").trim().toLowerCase(); if (!n) return null;
+  const list = activeStaff(doc);
+  return list.find((s) => s.id === name) || list.find((s) => s.name.toLowerCase() === n) || list.find((s) => s.name.toLowerCase().includes(n) || n.includes(s.name.toLowerCase())) || null;
+};
+
+// Free hourly slots. In salon mode each slot lists the masters free then (optionally for one service or one master).
+export function freeSlots(doc, days = 7, opts = {}) {
+  const tz = doc.biz.tz || "Europe/Moscow", now = localNow(tz), res = [], team = activeStaff(doc);
   for (let i = 0; i < days; i++) {
-    const date = addDaysIso(now.date, i), h = doc.biz.hours[dowOf(date)];
+    const date = addDaysIso(now.date, i), dow = dowOf(date), h = doc.biz.hours[dow];
     if (!h) continue;
     for (let m = toMin(h[0]); m + 60 <= toMin(h[1]); m += 60) {
       const time = `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
       if (i === 0 && m <= now.min + 60) continue;
-      if (doc.items.some((b) => b.kind === "booking" && b.status !== "cancelled" && b.date === date && b.time === time)) continue;
-      res.push({ date, time });
+      if (!team.length) { if (!busy(doc, date, time)) res.push({ date, time }); continue; }
+      const staff = team.filter((s) => (!opts.staff || s.id === opts.staff) && canDo(s, opts.service) && worksOn(s, dow) && !busy(doc, date, time, s.id)).map((s) => s.id);
+      if (staff.length) res.push({ date, time, staff });
     }
   }
   return res;
 }
-export const slotFree = (doc, date, time) => freeSlots(doc, 14).some((s) => s.date === date && s.time === time);
+// The free slot (with the masters free then), or null
+export const slotFree = (doc, date, time, opts = {}) => freeSlots(doc, 14, opts).find((s) => s.date === date && s.time === time) || null;
+
+// Subscription plans: by the size of the team
+export const PLANS = [
+  { id: "solo", max: 1, eur: 19, rub: 1490 },
+  { id: "team", max: 5, eur: 49, rub: 3900 },
+  { id: "salon", max: 15, eur: 99, rub: 7900 },
+];
+export const TRIAL_DAYS = 30;
+export const planFor = (doc) => { const n = Math.max(1, activeStaff(doc).length); return PLANS.find((p) => n <= p.max) || PLANS[PLANS.length - 1]; };
 export function inHoursNow(doc) {
   const now = localNow(doc.biz.tz || "Europe/Moscow"), h = doc.biz.hours[now.dow];
   return !!h && now.min >= toMin(h[0]) && now.min < toMin(h[1]);
@@ -55,8 +81,8 @@ export const DECISION_SCHEMA = {
     note: { type: "string" },
     booking: {
       anyOf: [{ type: "null" }, {
-        type: "object", additionalProperties: false, required: ["name", "service", "date", "time"],
-        properties: { name: { type: "string" }, service: { type: "string" }, date: { type: "string" }, time: { type: "string" } },
+        type: "object", additionalProperties: false, required: ["name", "service", "date", "time", "staff"],
+        properties: { name: { type: "string" }, service: { type: "string" }, date: { type: "string" }, time: { type: "string" }, staff: { type: "string" } },
       }],
     },
     request: {
@@ -99,9 +125,16 @@ ${hours}
 KNOWLEDGE AND RULES OF THE BUSINESS
 ${b.policy || "-"}
 `;
+  const team = activeStaff(doc), nameOf = (id) => team.find((s) => s.id === id)?.name || "";
+  if (isBooking && team.length) {
+    p += `
+TEAM (the client can choose a master or take whoever is free)
+${team.map((s) => `- ${s.name}${s.role ? ` (${s.role})` : ""}: ${s.services?.length ? s.services.join(", ") : "all services"}${s.off?.length ? `; days off: ${s.off.map((d) => WD[d]).join(", ")}` : ""}`).join("\n")}
+`;
+  }
   if (isBooking) {
     const byDay = {};
-    freeSlots(doc, 7).forEach((s) => (byDay[s.date] ||= []).push(s.time));
+    freeSlots(doc, 7).forEach((s) => (byDay[s.date] ||= []).push(team.length ? `${s.time} [${s.staff.map(nameOf).join(", ")}]` : s.time));
     const slots = Object.entries(byDay).map(([d, ts]) => `- ${d} (${WD[dowOf(d)]}): ${ts.join(", ")}`).join("\n") || "- none this week";
     p += `
 FREE SLOTS (only these can be booked)
@@ -109,7 +142,7 @@ ${slots}
 
 BOOKING
 - To book you need a service from the list, a free slot from the list and the client's first name. Ask for what is missing, one question at a time. Propose at most 3 slots at once.
-- Set action "book" (with "booking") only when service + slot + name are known and the client agreed. Confirm in the reply and say a reminder will come the day before.${doc.guard?.deposit ? "\n- After confirming a booking, say that a link to pay a 20% deposit will follow." : ""}
+${team.length ? `- Each free slot lists in [brackets] the masters free then. Check that the master does the service. Put the chosen master's name in booking.staff and name the master in your confirmation. If the client wants a specific master, offer only that master's slots.\n` : `- Leave booking.staff empty.\n`}- Set action "book" (with "booking") only when service + slot + name are known and the client agreed. Confirm in the reply and say a reminder will come the day before.${doc.guard?.deposit ? "\n- After confirming a booking, say that a link to pay a 20% deposit will follow." : ""}
 - To move a booking, set "book" with the new slot (the old one is released). To cancel, action "cancel".
 ${existing ? `THIS CLIENT ALREADY HAS: ${existing.service}, ${existing.date} ${existing.time}, name ${existing.client}.` : "This client has no booking yet."}
 Set "request" to null.`;
@@ -137,18 +170,27 @@ export function applyDecision(doc, convo, res, { locale, source = "TG", chatId =
   if (res.action === "ignore") return { reply: "", notify, ignored: true };
   if (res.action === "book" && res.booking) {
     const bk = res.booking, wanted = String(bk.service || "").toLowerCase();
-    const svc = doc.biz.services.find((s) => s.name.toLowerCase() === wanted) || doc.biz.services.find((s) => wanted && s.name.toLowerCase().includes(wanted.slice(0, 6))) || doc.biz.services[0];
+    const wantStaff = findStaff(doc, bk.staff);
+    const svc = doc.biz.services.find((s) => s.name.toLowerCase() === wanted) || doc.biz.services.find((s) => wanted && s.name.toLowerCase().includes(wanted.slice(0, 6)))
+      || (wantStaff?.services?.length ? doc.biz.services.find((s) => wantStaff.services.includes(s.name)) : null) || doc.biz.services[0];
     const date = String(bk.date || ""), time = String(bk.time || "").padStart(5, "0");
-    if (!(existing && existing.date === date && existing.time === time)) {
-      if (slotFree(doc, date, time)) {
-        if (existing) existing.status = "cancelled";
+    const sameAsBefore = existing && existing.date === date && existing.time === time && (!wantStaff || existing.staff === wantStaff.id);
+    if (!sameAsBefore) {
+      // a moved booking must not block its own new slot
+      const prev = existing ? existing.status : null; if (existing) existing.status = "cancelled";
+      const opts = { service: svc.name, staff: wantStaff?.id };
+      const slot = slotFree(doc, date, time, opts);
+      if (slot) {
         const name = String(bk.name || convo.name).slice(0, 60);
-        doc.items.push({ id: uid(), kind: "booking", client: name, service: svc.name, price: svc.price, date, time, source, status: "new", example: false, convo: convo.id, chatId, bizConn, deposit: !!doc.guard?.deposit, createdAt: now });
+        const staff = slot.staff ? activeStaff(doc).find((s) => s.id === slot.staff[0]) : null;
+        const label = staff ? `${svc.name} · ${staff.name}` : svc.name;
+        doc.items.push({ id: uid(), kind: "booking", client: name, service: svc.name, price: svc.price, date, time, ...(staff ? { staff: staff.id, staffName: staff.name } : {}), source, status: "new", example: false, convo: convo.id, chatId, bizConn, deposit: !!doc.guard?.deposit, createdAt: now });
         doc.alerts.push({ id: uid(), type: "book", name, x: `${fmtShort(date)} ${time}`, ts: now });
-        doc.activity.push({ kind: "book", name, x: `${svc.name}, ${fmtShort(date)} ${time}`, ts: now });
-        notify.push(T.n_book(name, svc.name, fmtDay(date, locale), time));
+        doc.activity.push({ kind: "book", name, x: `${label}, ${fmtShort(date)} ${time}`, ts: now });
+        notify.push(T.n_book(name, label, fmtDay(date, locale), time));
       } else {
-        const alt = freeSlots(doc, 7).slice(0, 3).map((s) => `${fmtDay(s.date, locale)} ${s.time}`).join(", ");
+        if (existing) existing.status = prev;
+        const alt = freeSlots(doc, 7, opts).slice(0, 3).map((s) => `${fmtDay(s.date, locale)} ${s.time}`).join(", ");
         reply = T.taken(alt);
       }
     }

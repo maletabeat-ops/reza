@@ -245,6 +245,45 @@ test("Instagram: one-button login, webhook checks, AI answers in Direct, owner t
   assert.equal((await call("/api/me")).json.business.igReady, true);
 });
 
+test("salon mode: team, plans, booking a chosen master, two masters at the same time", async () => {
+  let me = await call("/api/me");
+  assert.equal(me.json.business.plan.id, "solo");
+  assert.ok(me.json.business.plan.trialEnds > Date.now());
+  const st = await call("/api/state"), d = st.json.doc;
+  d.team = { kind: "salon", staff: [
+    { id: "lea", name: "Lea", role: "nails", services: [], off: [] },
+    { id: "mia", name: "Mia", role: "pedicure", services: ["Pedicure"], off: [] },
+    { id: "x", name: "", services: [] }, // dropped: no name
+  ] };
+  const put = await call("/api/state", { method: "PUT", body: { doc: d, deleted: [] } });
+  assert.equal(put.json.doc.team.staff.length, 2);
+  me = await call("/api/me");
+  assert.equal(me.json.business.plan.id, "team");
+  assert.equal(me.json.business.plan.staff, 2);
+
+  const m = (await call("/api/public/masters")).json.masters.find((x) => x.slug === slug);
+  assert.equal(m.team.length, 2);
+  const s = m.free.find((x) => x.staff.length === 2);
+  assert.ok(s, "a slot where both masters are free");
+  const book = (staff, svc) => call(`/api/public/masters/${slug}/book`, { method: "POST", body: { name: "C" + staff, phone: "+33 6 00 00 00 00", svc, date: s.date, time: s.time, staff } });
+  assert.equal((await book("mia", 0)).status, 409, "Mia does not do manicures");
+  assert.equal((await book("mia", 1)).status, 200);
+  assert.equal((await book("lea", 0)).status, 200, "Lea is still free at the same time");
+  assert.equal((await book("lea", 1)).status, 409, "both masters are now busy");
+
+  // the AI books a named master through Telegram
+  const s2 = m.free.find((x) => x.staff.includes("mia") && !(x.date === s.date && x.time === s.time));
+  await tgUpdate(4321, `/start ${slug}`);
+  await tgUpdate(4321, `BOOK ${s2.date} ${s2.time} Olga WITH Mia`);
+  let it;
+  for (let i = 0; i < 20 && !it; i++) { await wait(150); it = (await call("/api/state")).json.doc.items.find((x) => x.client === "Olga"); }
+  assert.equal(it?.staffName, "Mia");
+
+  // back to solo for the rest of the tests
+  const d2 = (await call("/api/state")).json.doc; d2.team = { kind: "solo", staff: [] };
+  await call("/api/state", { method: "PUT", body: { doc: d2, deleted: [] } });
+});
+
 test("deleting an item from the dashboard removes it on the server", async () => {
   const st = await call("/api/state");
   const d = st.json.doc, gone = d.items[0].id;
