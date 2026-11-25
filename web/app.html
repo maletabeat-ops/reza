@@ -834,45 +834,48 @@ a.btn,a.btn:hover{text-decoration:none}
    white and on black, down to 16px.
    ===================================================================== */
 let gid = 0;
-/* The Reza wordmark, drawn from Manrope ExtraBold outlines (crisp at every size):
-   solid black extrusion → black outline → white letters, the "e" and the round "presence" dot in vivid pink with a white ring. */
-const LOGO_G = {"glyphs":[{"ch":"R","d":"M20.60 0L7 0L7-72L37.40-72Q38.45-72 40.23-71.92Q42-71.85 43.40-71.60L43.40-71.60Q49.85-70.60 53.98-67.35Q58.10-64.10 60.05-59.18Q62-54.25 62-48.20L62-48.20Q62-39.15 57.50-32.75L57.50-32.75Q54.70-28.75 50-26.65L50-26.65L63 0L47.60 0L35.75-24.40L20.60-24.40L20.60 0ZM20.60-59.30L20.60-37.10L36.80-37.10Q37.85-37.10 39.10-37.20Q40.35-37.30 41.40-37.60L41.40-37.60Q44.15-38.35 45.65-40.13Q47.15-41.90 47.73-44.08Q48.30-46.25 48.30-48.20Q48.30-50.15 47.73-52.33Q47.15-54.50 45.65-56.28Q44.15-58.05 41.40-58.80L41.40-58.80Q40.35-59.10 39.10-59.20Q37.85-59.30 36.80-59.30L36.80-59.30L20.60-59.30Z"},{"ch":"e","d":"M102.10 1.50L102.10 1.50Q93.80 1.50 87.47-2.08Q81.15-5.65 77.58-11.93Q74-18.20 74-26.30L74-26.30Q74-35.15 77.50-41.70Q81-48.25 87.15-51.88Q93.30-55.50 101.30-55.50L101.30-55.50Q109.80-55.50 115.75-51.50Q121.70-47.50 124.55-40.25Q127.40-33 126.55-23.20L126.55-23.20L88.65-23.20Q89.30-18.35 91.70-15.35L91.70-15.35Q94.95-11.20 101.30-11.20L101.30-11.20Q105.30-11.20 108.15-12.95Q111-14.70 112.50-18L112.50-18L126.10-14.10Q123.05-6.70 116.47-2.60Q109.90 1.50 102.10 1.50ZM89-33.30L112.80-33.30Q112.20-37.70 110.50-40.10L110.50-40.10Q107.85-43.70 101.90-43.70L101.90-43.70Q94.95-43.70 91.70-39.50L91.70-39.50Q89.80-37.05 89-33.30L89-33.30Z"},{"ch":"z","d":"M182.30 0L135.80 0L135.80-1.70L162.30-42.20L138.80-42.20L138.80-54L183.30-54L183.30-52.30L156.90-11.80L182.30-11.80L182.30 0Z"},{"ch":"a","d":"M212.30 1.50L212.30 1.50Q206.50 1.50 202.48-0.73Q198.45-2.95 196.38-6.68Q194.30-10.40 194.30-14.90L194.30-14.90Q194.30-18.65 195.45-21.75Q196.60-24.85 199.18-27.23Q201.75-29.60 206.10-31.20L206.10-31.20Q209.10-32.30 213.25-33.15Q217.40-34 222.65-34.80L222.65-34.80Q225.75-35.25 229.20-35.75L229.20-35.75Q228.80-39.10 227-40.85L227-40.85Q224.70-43.10 219.30-43.10L219.30-43.10Q216.30-43.10 213.05-41.65Q209.80-40.20 208.50-36.50L208.50-36.50L196.20-40.40Q198.25-47.10 203.90-51.30Q209.55-55.50 219.30-55.50L219.30-55.50Q226.45-55.50 232-53.30Q237.55-51.10 240.40-45.70L240.40-45.70Q242-42.70 242.30-39.70Q242.60-36.70 242.60-33L242.60-33L242.60 0L230.70 0L230.70-6.65Q227.50-2.85 223.90-0.95L223.90-0.95Q219.30 1.50 212.30 1.50ZM215.20-9.20L215.20-9.20Q218.95-9.20 221.53-10.53Q224.10-11.85 225.63-13.55Q227.15-15.25 227.70-16.40L227.70-16.40Q228.75-18.60 228.95-21.55L228.95-21.55Q229.05-23.30 229.05-24.75L229.05-24.75Q225.70-24.15 223.30-23.75L223.30-23.75Q219.55-23.05 217.25-22.50Q214.95-21.95 213.20-21.30L213.20-21.30Q211.20-20.50 209.98-19.58Q208.75-18.65 208.18-17.55Q207.60-16.45 207.60-15.10L207.60-15.10Q207.60-13.25 208.53-11.93Q209.45-10.60 211.15-9.90Q212.85-9.20 215.20-9.20Z"},{"ch":".","d":"M259.17 -7.80a8.43 8.43 0 1 0 16.86 0a8.43 8.43 0 1 0 -16.86 0z"}],"box":{"minX":7,"maxX":274.40000000000003,"minY":-72,"maxY":1.5}};
-const MOTION_OK = !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-function rezaMark(id, o={}){
-  const O = o.outline ?? 6.5, W = o.ring ?? 3.6, EX = o.depth ?? 7, ink = o.ink || "#120B10", {minX, maxX, minY, maxY} = LOGO_G.box;
-  const x0 = minX - O - 2, y0 = minY - O - 2, w = maxX + O + EX*.55 + 2 - x0, h = maxY + O + EX + 2 - y0;
-  const isPink = (g) => g.ch === "e" || g.ch === ".", all = LOGO_G.glyphs.map(g => g.d).join(" ");
-  const pink = LOGO_G.glyphs.filter(isPink), white = LOGO_G.glyphs.filter(g => !isPink(g));
-  let depth = ""; for(let i = EX; i >= 1; i--) depth += `<path d="${all}" transform="translate(${(i*.55).toFixed(2)} ${i})" fill="${ink}" stroke="${ink}" stroke-width="${2*O}" stroke-linejoin="round"/>`;
-  const shine = o.motion !== false && MOTION_OK;
-  return {w, h, svg: `<defs>
-    <linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF4DA6"/><stop offset=".55" stop-color="#F7157F"/><stop offset="1" stop-color="#C2005E"/></linearGradient>
-    <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
-    <linearGradient id="${id}w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFF1F7"/></linearGradient>
-    ${shine ? `<linearGradient id="${id}s" x1="0" y1="0" x2="1" y2=".4"><stop offset=".35" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".7"/><stop offset=".65" stop-color="#fff" stop-opacity="0"/>
-      <animateTransform attributeName="gradientTransform" type="translate" values="-1.2 0;-1.2 0;1.2 0" keyTimes="0;.6;1" dur="4.5s" repeatCount="indefinite"/></linearGradient>` : ""}
-  </defs><g transform="translate(${(-x0).toFixed(2)} ${(-y0).toFixed(2)})">${depth}
-    <path d="${all}" fill="${ink}" stroke="${ink}" stroke-width="${2*O}" stroke-linejoin="round"/>
-    ${pink.map(g => `<path d="${g.d}" fill="#fff" stroke="#fff" stroke-width="${2*W}" stroke-linejoin="round"/>`).join("")}
-    ${white.map(g => `<path d="${g.d}" fill="url(#${id}w)"/>`).join("")}
-    ${pink.map(g => `<path d="${g.d}" fill="url(#${id}p)"/><path d="${g.d}" fill="url(#${id}g)"/>${shine ? `<path d="${g.d}" fill="url(#${id}s)"/>` : ""}`).join("")}
-  </g>`};
+let LOGO_E = "é"; // the French accent on the "e": Réza
+const LOGO_FONT = `font-family="Manrope, 'Segoe UI', Arial, sans-serif" font-weight="800" font-size="52" letter-spacing="1.5"`;
+function logoLayers(id, ring=true){
+  const f = "lf" + id;
+  // depth: the outline is pushed down-right and darkened, so the wordmark reads as a raised sticker
+  return `<filter id="${f}" x="-12%" y="-35%" width="128%" height="185%" color-interpolation-filters="sRGB">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="${ring?4.2:2.6}" result="outer"/>
+      <feMorphology in="SourceAlpha" operator="dilate" radius="2.2" result="inner"/>
+      <feOffset in="outer" dx="2.2" dy="4.4" result="depthA"/>
+      <feFlood flood-color="${ring?"#151015":"#000000"}"/><feComposite in2="depthA" operator="in" result="depth"/>
+      <feGaussianBlur in="depthA" stdDeviation="4" result="soft"/><feOffset in="soft" dx="0" dy="5" result="softB"/>
+      <feFlood flood-color="#F7157F" flood-opacity=".4"/><feComposite in2="softB" operator="in" result="glow"/>
+      <feFlood flood-color="#151015"/><feComposite in2="outer" operator="in" result="black"/>
+      <feFlood flood-color="#FFFFFF"/><feComposite in2="inner" operator="in" result="white"/>
+      <feMerge><feMergeNode in="glow"/>${ring?'<feMergeNode in="depth"/><feMergeNode in="black"/>':'<feMergeNode in="depth"/>'}<feMergeNode in="white"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <g filter="url(#${f})"><text x="8" y="49" ${LOGO_FONT}><tspan fill="url(#${id}w)">R</tspan><tspan fill="url(#${id})">${LOGO_E}</tspan><tspan fill="url(#${id}w)">za</tspan><tspan fill="url(#${id})" dx="1">.</tspan></text></g>`;
 }
-/* h = the height of the old wordmark box; the letters keep the same visual size */
+const MOTION_OK = !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+let LOGO_MOTION = true;
+// pink: glossy gradient with a slow shine that runs across the "e" and the dot; white letters get a soft top light
+const gradDef = (id) => `<defs>
+  <linearGradient id="${id}" x1="0" y1="10" x2="60" y2="60" gradientUnits="userSpaceOnUse" spreadMethod="reflect">
+    <stop offset="0" stop-color="#FF4DA6"/><stop offset=".45" stop-color="#F7157F"/><stop offset=".8" stop-color="#D4096C"/><stop offset="1" stop-color="#FF4DA6"/>
+    ${MOTION_OK && LOGO_MOTION ? `<animateTransform attributeName="gradientTransform" type="translate" values="0 0; 60 0; 0 0" dur="5s" repeatCount="indefinite"/>` : ""}
+  </linearGradient>
+  <linearGradient id="${id}w" x1="0" y1="10" x2="0" y2="52" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFF3F8"/></linearGradient>
+</defs>`;
+/* The Reza wordmark: black outline → white ring → pink gradient, with the "presence" dot that also marks every AI message. */
 function logoSVG(h=30, o={}){
-  const id = "lg" + (++gid), m = rezaMark(id, {motion:o.motion}), H = Math.round(h * .8), W = Math.round(H * m.w / m.h);
-  return `<svg class="logo-svg ${o.cls||""}" width="${W}" height="${H}" viewBox="0 0 ${m.w.toFixed(1)} ${m.h.toFixed(1)}" role="img" aria-label="Reza">${m.svg}</svg>`;
+  const id = "lg" + (++gid), w = Math.round(h*188/64);
+  return `<svg class="logo-svg ${o.cls||""}" width="${w}" height="${h}" viewBox="0 0 188 64" role="img" aria-label="Reza">${gradDef(id)}${logoLayers(id)}</svg>`;
 }
 /* App icon / favicon: the same wordmark on a black tile */
-function appIconSVG(size=32, o={}){
-  const id = "ai" + (++gid), m = rezaMark(id, {depth:4, outline:5.5, ring:3.2, motion:o.motion}), sc = 56 / m.w;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#151015"/><g transform="translate(4 ${(32 - m.h*sc/2).toFixed(2)}) scale(${sc.toFixed(4)})">${m.svg}</g></svg>`;
+function appIconSVG(size=32){
+  const id = "ai" + (++gid);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true">${gradDef(id)}<rect width="64" height="64" rx="15" fill="#151015"/><g transform="translate(4.5 22.5) scale(.29)">${logoLayers(id,false)}</g></svg>`;
 }
 const markSVG = (h=30, o={}) => logoSVG(h, o);
 (function favicon(){
   try{
     const l = document.createElement("link"); l.rel = "icon"; l.type = "image/svg+xml";
-    l.href = "data:image/svg+xml," + encodeURIComponent(appIconSVG(64, {motion:false}).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '));
+    l.href = "data:image/svg+xml," + encodeURIComponent(appIconSVG(64).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/\s+/g," "));
     document.head.appendChild(l);
   }catch(e){}
 })();
