@@ -2,11 +2,14 @@
 // Served at /privacy, /terms and /data-deletion, in English, French, Russian and German (?lang=xx).
 const CONTACT = () => process.env.CONTACT_EMAIL || "";
 const OPERATOR = () => process.env.LEGAL_NAME || "Reza";
-const UPDATED = "2026-11-23";
+const UPDATED = "2026-11-25";
+const SIRET = () => process.env.LEGAL_SIRET || "";
+const ADDRESS = () => process.env.LEGAL_ADDRESS || "";
 
 const T = {
   en: {
-    nav: { privacy: "Privacy policy", terms: "Terms of use", deletion: "Data deletion" },
+    mentions: { title: "Legal notice", sections: [["Publisher", "{op}{siret}{addr}"], ["Publication director", "{opname}"], ["Hosting", "Render Services, Inc., San Francisco, USA (render.com). Database: Neon, Inc. (neon.tech), servers in Frankfurt, Germany."], ["Personal data", "See the privacy policy."]], siret: "Registration number (SIRET)", addr: "Address" },
+    nav: { privacy: "Privacy policy", terms: "Terms of use", deletion: "Data deletion", mentions: "Legal notice" },
     updated: "Last updated",
     contact: (m) => (m ? `Contact: <a href="mailto:${m}">${m}</a>` : "Contact: through the support form in your Reza account (Profile)."),
     privacy: {
@@ -61,7 +64,8 @@ const T = {
     },
   },
   fr: {
-    nav: { privacy: "Confidentialité", terms: "Conditions d'utilisation", deletion: "Suppression des données" },
+    mentions: { title: "Mentions légales", sections: [["Éditeur", "{op}{siret}{addr}"], ["Directeur de la publication", "{opname}"], ["Hébergement", "Render Services, Inc., San Francisco, États-Unis (render.com). Base de données : Neon, Inc. (neon.tech), serveurs à Francfort, Allemagne."], ["Données personnelles", "Voir la politique de confidentialité."]], siret: "SIRET", addr: "Adresse" },
+    nav: { privacy: "Confidentialité", terms: "Conditions d'utilisation", deletion: "Suppression des données", mentions: "Mentions légales" },
     updated: "Dernière mise à jour",
     contact: (m) => (m ? `Contact : <a href="mailto:${m}">${m}</a>` : "Contact : via le formulaire d'aide de votre espace Reza (Profil)."),
     privacy: {
@@ -116,7 +120,8 @@ const T = {
     },
   },
   ru: {
-    nav: { privacy: "Конфиденциальность", terms: "Условия использования", deletion: "Удаление данных" },
+    mentions: { title: "Правовая информация", sections: [["Владелец сайта", "{op}{siret}{addr}"], ["Ответственный за публикацию", "{opname}"], ["Хостинг", "Render Services, Inc., Сан-Франциско, США (render.com). База данных: Neon, Inc. (neon.tech), серверы во Франкфурте, Германия."], ["Персональные данные", "См. политику конфиденциальности."]], siret: "SIRET", addr: "Адрес" },
+    nav: { privacy: "Конфиденциальность", terms: "Условия использования", deletion: "Удаление данных", mentions: "Правовая информация" },
     updated: "Обновлено",
     contact: (m) => (m ? `Связь: <a href="mailto:${m}">${m}</a>` : "Связь: через форму поддержки в кабинете Reza (Профиль)."),
     privacy: {
@@ -171,7 +176,8 @@ const T = {
     },
   },
   de: {
-    nav: { privacy: "Datenschutz", terms: "Nutzungsbedingungen", deletion: "Datenlöschung" },
+    mentions: { title: "Impressum", sections: [["Anbieter", "{op}{siret}{addr}"], ["Verantwortlich für den Inhalt", "{opname}"], ["Hosting", "Render Services, Inc., San Francisco, USA (render.com). Datenbank: Neon, Inc. (neon.tech), Server in Frankfurt, Deutschland."], ["Personenbezogene Daten", "Siehe Datenschutzerklärung."]], siret: "SIRET", addr: "Adresse" },
+    nav: { privacy: "Datenschutz", terms: "Nutzungsbedingungen", deletion: "Datenlöschung", mentions: "Impressum" },
     updated: "Zuletzt aktualisiert",
     contact: (m) => (m ? `Kontakt: <a href="mailto:${m}">${m}</a>` : "Kontakt: über das Support-Formular in Ihrem Reza-Konto (Profil)."),
     privacy: {
@@ -237,7 +243,12 @@ export function pickLang(query, acceptLanguage) {
 }
 
 export function legalPage(kind, lang) {
-  const L = T[lang] || T.en, doc = L[kind], path = { privacy: "/privacy", terms: "/terms", deletion: "/data-deletion" };
+  const L = T[lang] || T.en, path = { privacy: "/privacy", terms: "/terms", deletion: "/data-deletion", mentions: "/mentions-legales" };
+  let doc = L[kind];
+  if (kind === "mentions") { // fill the operator details
+    const fill = (x) => x.replace("{op}", OPERATOR()).replace("{opname}", OPERATOR()).replace("{siret}", SIRET() ? ` · ${L.mentions.siret} ${SIRET()}` : "").replace("{addr}", ADDRESS() ? ` · ${L.mentions.addr}: ${ADDRESS()}` : "");
+    doc = { ...doc, sections: doc.sections.map(([h, t]) => [h, [fill(t)]]) };
+  }
   const body = (kind === "privacy" ? `<p class="lead">${esc(doc.intro(OPERATOR()))}</p>` : "") +
     doc.sections.map(([h, items]) => `<h2>${esc(h)}</h2>${items.length > 1 ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p>${esc(items[0])}</p>`}`).join("");
   const langs = LEGAL_LANGS.map((l) => `<a href="${path[kind]}?lang=${l}"${l === lang ? ' aria-current="true"' : ""}>${l.toUpperCase()}</a>`).join("");

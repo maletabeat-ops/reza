@@ -340,7 +340,7 @@ async function remindersOnce() {
 }
 
 // ---------- legal pages (linked from the Meta app settings) ----------
-for (const [path, kind] of [["/privacy", "privacy"], ["/terms", "terms"], ["/data-deletion", "deletion"]]) {
+for (const [path, kind] of [["/privacy", "privacy"], ["/terms", "terms"], ["/data-deletion", "deletion"], ["/mentions-legales", "mentions"], ["/impressum", "mentions"]]) {
   app.get(path, (c) => c.html(legalPage(kind, pickLang(c.req.query("lang"), c.req.header("accept-language")))));
 }
 

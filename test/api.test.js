@@ -314,12 +314,20 @@ test("account deletion needs the password and removes the business", async () =>
 });
 
 test("legal pages are public and localised", async () => {
-  for (const path of ["/privacy", "/terms", "/data-deletion"]) {
+  for (const path of ["/privacy", "/terms", "/data-deletion", "/mentions-legales"]) {
     const r = await fetch(BASE + path + "?lang=fr"); assert.equal(r.status, 200);
     assert.match(await r.text(), /lang="fr"/);
   }
   assert.match(await (await fetch(BASE + "/privacy", { headers: { "accept-language": "de-DE,de;q=0.9" } })).text(), /Datenschutzerklärung/);
   assert.match(await (await fetch(BASE + "/privacy")).text(), /Privacy policy/);
+});
+
+test("the app can be installed on a phone", async () => {
+  const m = await (await fetch(BASE + "/manifest.webmanifest")).json();
+  assert.equal(m.display, "standalone");
+  for (const i of m.icons) assert.equal((await fetch(BASE + i.src)).status, 200, i.src);
+  assert.equal((await fetch(BASE + "/sw.js")).status, 200);
+  assert.equal((await fetch(BASE + "/apple-touch-icon.png")).status, 200);
 });
 
 test("the web app is served", async () => {

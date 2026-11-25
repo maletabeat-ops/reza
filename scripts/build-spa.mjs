@@ -6,9 +6,14 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Reza — ИИ-администратор для мастеров и малого бизнеса. Отвечает клиентам 24/7 и записывает их.">
+<meta name="description" content="Reza — assistante IA pour les pros de la beauté : répond à vos clients sur Instagram et Telegram 24h/24 et prend les rendez-vous.">
 <meta name="theme-color" content="#151015">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reza">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
